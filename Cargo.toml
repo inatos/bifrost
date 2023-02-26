@@ -1,0 +1,18 @@
+[package]
+name = "bifrost"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy = "0.9"
+bevy_app = "0.9"
+bevy_core = "0.9"
+bevy_ecs = "0.9"
+bevy_ggrs = { version = "0.11", features = ["wasm-bindgen"] }
+bevy_log = "0.9"
+bevy_tasks = "0.9"
+bitflags = "1.3.2"
+bytemuck = "1.5"
+dashmap = "5.0"
+matchbox_socket = { version = "0.5.0", features = ["ggrs-socket"] }
+roaring = "0.10"
