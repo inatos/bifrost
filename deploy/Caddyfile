@@ -1,0 +1,35 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(security) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "accelerometer=(), camera=(), geolocation=(), microphone=()"
+		-Server
+	}
+	encode zstd gzip
+}
+
+bifrost.arathyll.com {
+	import security
+
+	handle /api/* {
+		reverse_proxy signal:8787
+	}
+
+	handle /signal/* {
+		uri strip_prefix /signal
+		reverse_proxy signal:3536
+	}
+
+	handle /healthz {
+		reverse_proxy signal:8787
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

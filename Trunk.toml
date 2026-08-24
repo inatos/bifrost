@@ -1,0 +1,15 @@
+[build]
+target = "wasm32-unknown-unknown"
+dist = "dist"
+public_url = "/"
+
+[watch]
+ignore = ["dist"]
+
+[[hooks]]
+stage = "build"
+command = "sh"
+command_arguments = ["-c", "cargo build -p bifrost_client --release --target wasm32-unknown-unknown"]
+
+[serve]
+addresses = ["127.0.0.1:1334"]

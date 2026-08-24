@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Bifrost — rollback Breakout/Pong over WebRTC" />
+  <title>Bifrost</title>
+  <link data-trunk rel="css" href="web/styles.css" />
+  <link data-trunk rel="copy-dir" href="assets" />
+  <link data-trunk rel="rust" data-bin="bifrost_client" href="crates/bifrost_client/Cargo.toml" />
+</head>
+<body>
+  <div id="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">⟁</span>
+        <div>
+          <strong>Bifrost</strong>
+          <p>Rollback Breakout / Pong lab</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-bot" type="button">Play bot</button>
+        <button id="btn-create" type="button">Create room</button>
+        <button id="btn-join" type="button">Join room</button>
+        <button id="btn-inspector" type="button" aria-pressed="false">Inspector</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <canvas id="bevy-canvas" tabindex="0" aria-label="Bifrost game canvas"></canvas>
+      <aside id="panel" class="panel hidden" aria-live="polite">
+        <h2>Lobby</h2>
+        <p id="status">Press Play bot to start instantly.</p>
+        <label class="field">
+          Room code
+          <input id="room-code" maxlength="8" autocomplete="off" placeholder="AB12CD34" />
+        </label>
+        <div class="row">
+          <button id="btn-copy" type="button">Copy invite</button>
+          <button id="btn-launch" type="button">Launch</button>
+        </div>
+        <section id="inspector" class="inspector hidden">
+          <h3>Rollback inspector</h3>
+          <dl>
+            <div><dt>RTT</dt><dd id="m-rtt">—</dd></div>
+            <div><dt>Jitter</dt><dd id="m-jitter">—</dd></div>
+            <div><dt>Input delay</dt><dd id="m-delay">2f</dd></div>
+            <div><dt>Confirmed</dt><dd id="m-confirmed">0</dd></div>
+            <div><dt>Rollbacks</dt><dd id="m-rollbacks">0</dd></div>
+            <div><dt>Checksum</dt><dd id="m-checksum">—</dd></div>
+          </dl>
+          <label class="field">
+            Lag Forge (local frames)
+            <select id="lag-forge">
+              <option value="0">Off</option>
+              <option value="2">+2f</option>
+              <option value="4">+4f</option>
+              <option value="8">+8f</option>
+            </select>
+          </label>
+        </section>
+        <p class="fine">Peer-to-peer WebRTC. Peers may learn network addresses. No accounts or match storage.</p>
+      </aside>
+    </main>
+  </div>
+  <script src="web/shell.js" defer></script>
+</body>
+</html>

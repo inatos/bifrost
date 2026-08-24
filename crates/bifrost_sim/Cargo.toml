@@ -1,0 +1,17 @@
+[package]
+name = "bifrost_sim"
+version = "0.2.0"
+description = "Deterministic competitive Breakout/Pong simulation for Bifrost"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bifrost_protocol = { path = "../bifrost_protocol" }
+rand = { workspace = true }
+rand_xoshiro = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }

@@ -1,5 +1,5 @@
-[build]
-target = "wasm32-unknown-unknown"
+# WASM runner for browser client builds only:
+#   cargo build -p bifrost_client --target wasm32-unknown-unknown --release
 
 [target.wasm32-unknown-unknown]
 runner = "wasm-server-runner"

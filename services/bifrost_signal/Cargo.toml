@@ -1,0 +1,36 @@
+[package]
+name = "bifrost_signal"
+version = "0.2.0"
+description = "Ephemeral room API and Matchbox signaling edge for Bifrost"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "bifrost_signal"
+path = "src/main.rs"
+
+[dependencies]
+bifrost_protocol = { path = "../../crates/bifrost_protocol" }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+futures-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dashmap = { workspace = true }
+rand = { workspace = true }
+getrandom = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+sha1 = "0.10"
+hex = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+matchbox_signaling = "0.14"

@@ -1,0 +1,13 @@
+[package]
+name = "bifrost_protocol"
+version = "0.2.0"
+description = "Shared room and ticket types for Bifrost"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

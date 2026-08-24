@@ -1,0 +1,45 @@
+[package]
+name = "bifrost_client"
+version = "0.2.0"
+description = "Bevy browser/native client for Bifrost rollback Breakout/Pong"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "bifrost_client"
+path = "src/main.rs"
+
+[dependencies]
+bifrost_protocol = { path = "../bifrost_protocol" }
+bifrost_sim = { path = "../bifrost_sim" }
+bifrost_net = { path = "../bifrost_net" }
+bevy = { workspace = true, features = [
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "bevy_ui_render",
+    "bevy_text",
+    "bevy_asset",
+    "bevy_state",
+    "multi_threaded",
+    "png",
+    "webgl2",
+    "x11",
+] }
+bevy_ggrs = { workspace = true }
+bevy_matchbox = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+getrandom = { workspace = true }
+rand = { workspace = true }
+rand_xoshiro = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Window", "Document", "Location", "HtmlCanvasElement"] }
+serde_qs = "1.0"

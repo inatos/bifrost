@@ -1,0 +1,56 @@
+# Bifrost production stack — independent of Arathyll nexus hosts.
+
+services:
+  signal:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.signal
+    restart: unless-stopped
+    environment:
+      BIND_ADDR: 0.0.0.0
+      PORT: 8787
+      MATCHBOX_PORT: 3536
+      PUBLIC_ORIGIN: https://bifrost.arathyll.com
+      PUBLIC_WS_ORIGIN: wss://bifrost.arathyll.com/signal
+      ROOM_TTL_SECS: 900
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_TTL_SECS: 600
+      RUST_LOG: bifrost_signal=info,tower_http=info
+    expose:
+      - "8787"
+      - "3536"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      signal:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - signal
+
+volumes:
+  caddy_data:
+  caddy_config:

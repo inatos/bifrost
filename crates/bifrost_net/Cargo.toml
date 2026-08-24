@@ -1,0 +1,15 @@
+[package]
+name = "bifrost_net"
+version = "0.2.0"
+description = "GGRS session helpers and rollback diagnostics for Bifrost"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bifrost_protocol = { path = "../bifrost_protocol" }
+bifrost_sim = { path = "../bifrost_sim" }
+bevy_ggrs = { workspace = true }
+bevy_matchbox = { workspace = true }
+serde = { workspace = true }

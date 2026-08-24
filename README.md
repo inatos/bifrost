@@ -1,58 +1,71 @@
 # Bifrost
-This ECS game of "Breakout" serves to explore the efficacy of rollback P2P sessions via a WebRTC context.
 
-![](./assets/pics/game_cap.png)
+**Live demo:** [bifrost.arathyll.com](https://bifrost.arathyll.com)
 
+Bifrost is a compact competitive Breakout/Pong arena used to demonstrate **GGRS rollback** over **WebRTC** in the browser. The simulation is deterministic and Bevy-free at the core; rendering and networking wrap the same `WorldState` snapshot used for rollback.
 
-## Why Rollback?
-Rollback is a netcode technique that reduces input lag between players by speculative execution. To gain a better understanding, let's juxtapose the classic "frame-delay" approach with rollback. Frame-delay waits for all inputs to get sent to the player's game instance then executes the frame. In contrast, rollback treats all player inputs as local and "predicts" the remote players' next action based off their previous inputs. Consequently, this significantly cuts down the lag normally felt online, feeling almost as responsive as offline play. In addition, this enables players to play with people across the world, despite the high pings. This sounds almost too good to be true, right? What happens when the predictions don't line up with the actual inputs? Well when they don't match up, it simply rolls back the game to the first incorrect frame. Next, it once again predicts the players' inputs then advances the game to the current frame—which all happens rather seamlessly. 
+## What you can try
 
-Games that require precise input, such as fighting or FPS games, greatly benefit from rollback. To illustrate, many modern games implement it:  Street Fighter 6, Tekken 8, Overwatch, heck they even retrofitted it into many old games i.e. Super Smash Bros. Melee.
+- **Play bot** — instant local match, no signaling required
+- **Private rooms** — ephemeral two-player codes via `/api/rooms`
+- **Rollback inspector** — RTT, input delay, rollback depth, checksum (toggle in shell)
+- **Replay codes** — deterministic input tapes shareable without server storage
 
+## Stack (pinned)
 
-## Setup
-1. Update to Rust `1.67.1+`.
-``` 
-rustup update
+| Crate | Version | Notes |
+|-------|---------|-------|
+| Bevy | 0.18.1 | WebGL2 WASM client |
+| bevy_ggrs | 0.20 | Rollback schedule |
+| Matchbox | 0.14 | WebRTC signaling transport |
+| Rust | 1.90 | MSRV for Bevy 0.18 deps |
+
+Bevy 0.19 is deferred until Matchbox’s GGRS stack publishes a compatible release train.
+
+## Quick start (native)
+
+```bash
+rustup toolchain install 1.90.0
+cargo run -p bifrost_client -- --bot
+# Enter → bot match · WASD / arrows · R restart
 ```
-2. Navigate to project root and install WASM toolchain:
-```
-rustup target install wasm32-unknown-unknown
-```
-3. Build WASM target:
-```
-cargo build --target wasm32-unknown-unknown
-```
-4. Install WebRTC server `matchbox_server`:
-```
-cargo install matchbox_server
+
+## Signaling service
+
+```bash
+cargo run -p bifrost_signal
+curl -s localhost:8787/healthz | jq
+curl -s -X POST localhost:8787/api/rooms -H 'content-type: application/json' -d '{"protocol_version":1}'
 ```
 
+## WASM / web shell
 
-## Run Game
-1. Start WebRTC server for player to connect to:
+```bash
+cargo install trunk
+trunk serve --open
+# http://127.0.0.1:1334/
 ```
-matchbox_server
+
+## Tests
+
+```bash
+cargo test -p bifrost_sim
+cargo fmt --all -- --check
+cargo clippy -p bifrost_sim -p bifrost_signal -- -D warnings
 ```
-2. The matchbox server is configured to run locally. Launch two browsers, I suggest running Chrome with an incognito window. 
-(If you want to connect elsewhere, just modify the connection vars in `netcode.rs`.) 
-3. Launch the game:
-```
-cargo run --release
-```
-4. In each browser connect to the game by navigating to `http://127.0.0.1:1334/`.
-5. Once both browsers are connected, the game will automatically start.
-6. Controls are the standard WASD and arrows.
 
+## Deploy
 
-## Future Development
-Currently, I'm working on creating an UE5 game that flips the shooter genre on its head, I intend to use rollback for its netcode. Although I haven't decided which rollback framework I'll use (GGRS, GGPO, etc.), this project has certainly helped dispel the sorcery behind this great technology. With that said, expect to see some UE5 projects in the future!
+See [docs/deployment.md](docs/deployment.md). Production runs as an **independent** stack at `bifrost.arathyll.com` (not embedded in the Arathyll nexus Compose).
 
+## Docs
 
-## References
-- [Bevy ECS](https://docs.rs/bevy/0.9.1/bevy/index.html)
-- [Bevy GGRS](https://github.com/gschup/bevy_ggrs)
-- [Matchbox](https://johanhelsing.studio/posts/introducing-matchbox)
-- [Learn ECS](https://gist.github.com/LearnCocos2D/77f0ced228292676689f)
-- [RustConf 2018 GameDev](https://www.youtube.com/watch?v=aKLntZcp27M)
-- [GGPO Rollback](https://www.ggpo.net/)
+- [Architecture](docs/architecture.md)
+- [Rollback model](docs/rollback.md)
+- [Room protocol](docs/protocol.md)
+- [Privacy & security](docs/privacy-security.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.
