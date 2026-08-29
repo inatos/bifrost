@@ -7,6 +7,8 @@ use bifrost_net::{RollbackDiagnostics, DEFAULT_INPUT_DELAY};
 pub struct NetSession {
     pub diagnostics: RollbackDiagnostics,
     pub input_delay: usize,
+    /// Set once when a GGRS peer disconnects mid-match.
+    pub peer_disconnected: bool,
 }
 
 impl NetSession {
@@ -14,6 +16,7 @@ impl NetSession {
         Self {
             diagnostics: RollbackDiagnostics::default(),
             input_delay: DEFAULT_INPUT_DELAY,
+            peer_disconnected: false,
         }
     }
 }

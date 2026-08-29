@@ -1,5 +1,5 @@
 [build]
-target = "wasm32-unknown-unknown"
+target = "index.html"
 dist = "dist"
 public_url = "/"
 
@@ -12,4 +12,5 @@ command = "sh"
 command_arguments = ["-c", "cargo build -p bifrost_client --release --target wasm32-unknown-unknown"]
 
 [serve]
-addresses = ["127.0.0.1:1334"]
+addresses = ["127.0.0.1"]
+port = 1334

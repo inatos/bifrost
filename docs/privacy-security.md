@@ -2,7 +2,7 @@
 
 ## Data collected
 
-- **None persisted** — room codes and tickets are ephemeral in memory
+- **None persisted** — room codes and tickets are ephemeral in memory (server `DashMap`; browser tab uses in-memory `sessionState` + WASM `bifrost_connect` — no `sessionStorage`, URL tickets, or save-file prompts)
 - Low-cardinality metrics (`bifrost_active_rooms`) on `/metrics`
 
 ## P2P exposure

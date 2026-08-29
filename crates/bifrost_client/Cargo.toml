@@ -25,10 +25,7 @@ bevy = { workspace = true, features = [
     "bevy_text",
     "bevy_asset",
     "bevy_state",
-    "multi_threaded",
     "png",
-    "webgl2",
-    "x11",
 ] }
 bevy_ggrs = { workspace = true }
 bevy_matchbox = { workspace = true }
@@ -40,6 +37,12 @@ rand = { workspace = true }
 rand_xoshiro = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { workspace = true, features = ["webgl2"] }
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["Window", "Document", "Location", "HtmlCanvasElement"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "Location", "HtmlCanvasElement", "HtmlAudioElement"] }
 serde_qs = "1.0"
+console_error_panic_hook = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { workspace = true, features = ["multi_threaded", "webgl2", "x11"] }

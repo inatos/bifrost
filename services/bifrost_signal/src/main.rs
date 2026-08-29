@@ -47,6 +47,7 @@ async fn main() {
         .route("/metrics", get(routes::metrics))
         .route("/api/rooms", post(routes::create_room))
         .route("/api/rooms/join", post(routes::join_room))
+        .route("/api/rooms/leave", post(routes::leave_room))
         .route("/api/rooms/{code}", get(routes::room_info))
         .route("/api/turn", get(routes::turn_credentials))
         .layer(CompressionLayer::new())

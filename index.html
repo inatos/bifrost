@@ -5,11 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Bifrost — rollback Breakout/Pong over WebRTC" />
   <title>Bifrost</title>
+  <script>
+    /* Mark embed before paint so Lab never flashes chrome / wrong layout. */
+    (function () {
+      try {
+        var q = new URLSearchParams(location.search);
+        if (q.get("embed") === "1" || q.get("embedded") === "1" || window.self !== window.top) {
+          document.documentElement.classList.add("embedded");
+          window.__bifrostPaused = true;
+        }
+      } catch (_) {
+        document.documentElement.classList.add("embedded");
+      }
+    })();
+  </script>
   <link data-trunk rel="css" href="web/styles.css" />
   <link data-trunk rel="copy-dir" href="assets" />
-  <link data-trunk rel="rust" data-bin="bifrost_client" href="crates/bifrost_client/Cargo.toml" />
+  <link data-trunk rel="copy-file" href="web/shell.js" />
+  <link data-trunk rel="rust" data-bin="bifrost_client" data-wasm-opt="0" href="crates/bifrost_client/Cargo.toml" />
 </head>
 <body>
+  <script>
+    if (document.documentElement.classList.contains("embedded") && document.body) {
+      document.body.classList.add("embedded");
+    }
+  </script>
   <div id="shell">
     <header class="topbar">
       <div class="brand">
@@ -27,8 +47,129 @@
       </div>
     </header>
 
+    <nav id="embed-options" class="embed-options" aria-label="Match options">
+      <div class="embed-options-row">
+        <span class="embed-brand">Bifrost</span>
+        <input id="embed-player-name" class="embed-name" maxlength="7" autocomplete="nickname" placeholder="Name" aria-label="Your name (7 letters max)" title="Your tag on the HUD (max 7 letters)" />
+        <button id="btn-embed-bot" type="button" title="Start a bot match (Ready first)">Bot</button>
+        <button id="btn-embed-create" type="button" title="Create a private online room">Create</button>
+        <button id="btn-embed-join" type="button" title="Join a room with the code below">Join</button>
+        <button id="btn-embed-inspector" type="button" aria-pressed="false" title="Toggle rollback netcode inspector">Inspector</button>
+        <button id="btn-embed-controls" type="button" title="Control options">Controls</button>
+      </div>
+      <div class="embed-options-row embed-room-row">
+        <div class="embed-room-field">
+          <input id="embed-room-code" maxlength="8" autocomplete="off" placeholder="Room code" aria-label="Room code" title="Paste a room code from a friend" />
+          <button id="btn-embed-copy" type="button" class="embed-icon-btn embed-room-copy" title="Copy room code" aria-label="Copy room code">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <button id="btn-embed-launch" type="button" title="Connect with ticket or start bot if empty">Launch</button>
+      </div>
+      <p id="embed-status" class="embed-status" aria-live="polite"></p>
+    </nav>
+
     <main class="stage">
-      <canvas id="bevy-canvas" tabindex="0" aria-label="Bifrost game canvas"></canvas>
+      <div class="arena-wrap">
+        <canvas id="bevy-canvas" tabindex="0" aria-label="Bifrost game canvas"></canvas>
+        <div id="pre-match" class="pre-match hidden" aria-live="polite">
+          <h2>Bifrost</h2>
+          <p class="pre-match-hint">Ready up to start a match</p>
+          <div class="pre-match-slots">
+            <div id="pre-p0" class="ready-slot">You — press Ready</div>
+            <div id="pre-cpu" class="ready-slot is-ready">CPU Ready</div>
+          </div>
+          <div class="pre-match-actions">
+            <button id="btn-pre-ready" type="button" class="ui-focus" title="Start the match">Ready</button>
+            <button id="btn-pre-quit" type="button" class="ghost" title="Return to the Lab menu">Quit</button>
+          </div>
+        </div>
+        <div id="lobby-wait" class="lobby-wait hidden" aria-live="polite">
+          <h2>Lobby</h2>
+          <p id="lobby-wait-code" class="lobby-wait-code"></p>
+          <p id="lobby-wait-msg" class="lobby-wait-msg">Share this code — friend presses Join with it</p>
+          <p id="lobby-wait-names" class="lobby-wait-names"></p>
+          <div class="pre-match-actions">
+            <button id="btn-lobby-copy" type="button" title="Copy room code">Copy code</button>
+            <button id="btn-lobby-quit" type="button" class="ghost" title="Leave lobby">Quit</button>
+          </div>
+        </div>
+        <div id="countdown" class="countdown hidden" aria-live="assertive" aria-hidden="true">
+          <span id="countdown-num">3</span>
+        </div>
+        <aside id="hud-howto-win" class="hud-howto hud-howto-win" aria-label="How to win">
+          <h3>How to win</h3>
+          <ul>
+            <li>Break bricks with the ball you own</li>
+            <li>First to <strong>3</strong> breaks wins the round</li>
+            <li>Or most breaks when the <strong>1:00</strong> timer ends</li>
+            <li>Clearing the board also ends the round</li>
+            <li>Timeout ties are possible</li>
+            <li>First to <strong>2</strong> rounds wins the match</li>
+          </ul>
+        </aside>
+        <aside id="hud-howto" class="hud-howto" aria-label="How to play">
+          <h3>Controls</h3>
+          <ul>
+            <li><kbd>WASD</kbd> — move</li>
+            <li><kbd>Arrows</kbd> / R-stick — angle (spring)</li>
+            <li><kbd>Space</kbd> / A — jump</li>
+            <li>Jump again mid-air — pound</li>
+            <li><kbd>X</kbd> / RT / LMB — spin (LTTP sweep)</li>
+            <li>RMB — snapback stance (aim with cursor)</li>
+          </ul>
+        </aside>
+        <div id="controls-panel" class="controls-panel hidden" aria-label="Control options">
+          <header>
+            <h2>Control Options</h2>
+            <button id="btn-controls-close" type="button" class="ghost" title="Close">Close</button>
+          </header>
+          <dl class="controls-map">
+            <div><dt>Move</dt><dd>WASD · Left stick · D-pad</dd></div>
+            <div><dt>Angle / Snapback</dt><dd>Arrow keys · Right stick · Hold RMB (aim at cursor)</dd></div>
+            <div><dt>Jump</dt><dd>Space · Pad A</dd></div>
+            <div><dt>Ground pound</dt><dd>Jump again while airborne</dd></div>
+            <div><dt>Spin</dt><dd>Hold X · West · RT · LMB (release to fire)</dd></div>
+          </dl>
+          <label class="controls-toggle">
+            <input id="opt-invert-angle" type="checkbox" />
+            Invert paddle angle
+          </label>
+          <p class="controls-note">Bindings are Lab defaults for this demo. Invert is saved in this browser tab.</p>
+        </div>
+        <div id="arena-hud" class="arena-hud" hidden aria-hidden="true">
+          <div id="hud-score" class="ssbm-score"></div>
+          <div id="hud-caller" class="ssbm-caller"></div>
+          <div id="ready-up" class="ready-up hidden" aria-live="polite">
+            <h2>Ready Up</h2>
+            <p id="ready-hint" class="ready-hint">Press A / Space to ready</p>
+            <div class="ready-slots">
+              <div id="ready-p0" class="ready-slot">You — press A / Space</div>
+              <div id="ready-p1" class="ready-slot">Opponent — waiting</div>
+            </div>
+            <div class="ready-actions results-actions">
+              <button id="btn-ready-menu" type="button" class="ghost" title="Return to match menu">Return to Match Menu</button>
+              <button id="btn-ready-quit" type="button" class="ghost" title="Quit to Lab">Quit</button>
+            </div>
+          </div>
+          <div id="results" class="results hidden" aria-live="polite">
+            <h2 id="results-title">Match Over</h2>
+            <p id="results-detail" class="results-detail"></p>
+            <div class="results-vote">
+              <div id="rematch-p0" class="ready-slot">Play Again — press to vote</div>
+              <div id="rematch-cpu" class="ready-slot is-ready">CPU Ready</div>
+            </div>
+            <div class="results-actions">
+              <button id="btn-play-again" type="button" class="ui-focus" title="Vote to rematch (CPU auto-ready)">Play Again</button>
+              <button id="btn-results-menu" type="button" class="ghost" title="Return to match menu">Return to Match Menu</button>
+              <button id="btn-quit" type="button" class="ghost" title="Leave match and return to Lab">Quit</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <aside id="panel" class="panel hidden" aria-live="polite">
         <h2>Lobby</h2>
         <p id="status">Press Play bot to start instantly.</p>
@@ -40,30 +181,30 @@
           <button id="btn-copy" type="button">Copy invite</button>
           <button id="btn-launch" type="button">Launch</button>
         </div>
-        <section id="inspector" class="inspector hidden">
-          <h3>Rollback inspector</h3>
-          <dl>
-            <div><dt>RTT</dt><dd id="m-rtt">—</dd></div>
-            <div><dt>Jitter</dt><dd id="m-jitter">—</dd></div>
-            <div><dt>Input delay</dt><dd id="m-delay">2f</dd></div>
-            <div><dt>Confirmed</dt><dd id="m-confirmed">0</dd></div>
-            <div><dt>Rollbacks</dt><dd id="m-rollbacks">0</dd></div>
-            <div><dt>Checksum</dt><dd id="m-checksum">—</dd></div>
-          </dl>
-          <label class="field">
-            Lag Forge (local frames)
-            <select id="lag-forge">
-              <option value="0">Off</option>
-              <option value="2">+2f</option>
-              <option value="4">+4f</option>
-              <option value="8">+8f</option>
-            </select>
-          </label>
-        </section>
         <p class="fine">Peer-to-peer WebRTC. Peers may learn network addresses. No accounts or match storage.</p>
       </aside>
     </main>
+    <section id="inspector" class="inspector hidden" aria-label="Rollback inspector">
+      <h3>Rollback inspector</h3>
+      <dl>
+        <div><dt>RTT</dt><dd id="m-rtt">—</dd></div>
+        <div><dt>Jitter</dt><dd id="m-jitter">—</dd></div>
+        <div><dt>Input delay</dt><dd id="m-delay">2f</dd></div>
+        <div><dt>Confirmed</dt><dd id="m-confirmed">0</dd></div>
+        <div><dt>Rollbacks</dt><dd id="m-rollbacks">0</dd></div>
+        <div><dt>Checksum</dt><dd id="m-checksum">—</dd></div>
+      </dl>
+      <label class="field">
+        Lag Forge (local frames)
+        <select id="lag-forge">
+          <option value="0">Off</option>
+          <option value="2">+2f</option>
+          <option value="4">+4f</option>
+          <option value="8">+8f</option>
+        </select>
+      </label>
+    </section>
   </div>
-  <script src="web/shell.js" defer></script>
+  <script src="/shell.js"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 use crate::input::FrameInput;
-use crate::{checksum, new_match, simulate_frames, step};
+use crate::{checksum, new_match, simulate_frames, step, BRICK_COLS, BRICK_COUNT, OWNER_NEUTRAL, FP_SCALE};
 
 #[test]
 fn identical_inputs_produce_identical_checksums() {
@@ -54,4 +54,227 @@ fn checkpoint_resume_matches_continuous_run() {
 
     assert_eq!(checksum(&full), checksum(&partial));
     assert_eq!(checksum(&partial), checksum(&resumed));
+}
+
+#[test]
+fn brick_tiers_differ_across_seeds() {
+    let a = new_match(1);
+    let b = new_match(2);
+    assert_ne!(a.brick_max_hp, b.brick_max_hp);
+    assert!(a
+        .brick_max_hp
+        .iter()
+        .all(|h| *h == 0 || (1..=3).contains(h)));
+    assert_eq!(a.brick_hp, a.brick_max_hp);
+    // Face-off lane (center two columns) stays empty.
+    let gap_lo = (BRICK_COLS as usize / 2).saturating_sub(1);
+    let gap_hi = BRICK_COLS as usize / 2;
+    for index in 0..BRICK_COUNT {
+        let col = index % BRICK_COLS as usize;
+        if col == gap_lo || col == gap_hi {
+            assert_eq!(a.brick_hp[index], 0);
+        }
+    }
+}
+
+#[test]
+fn neutral_ball_does_not_damage_bricks() {
+    let mut state = new_match(123);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    let idx = state
+        .brick_hp
+        .iter()
+        .position(|&h| h > 0)
+        .expect("alive brick");
+    let hp_before = state.brick_hp[idx];
+    let center = state.brick_center(idx);
+    state.ball.owner = OWNER_NEUTRAL;
+    state.ball.pos = center;
+    state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
+    let out = step(&mut state, FrameInput::default());
+    assert_eq!(state.brick_hp[idx], hp_before);
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::BrickBounce { .. })));
+}
+
+#[test]
+fn charged_brick_hit_neutralizes_and_damages() {
+    let mut state = new_match(55);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    let idx = state
+        .brick_hp
+        .iter()
+        .position(|&h| h > 0)
+        .expect("alive brick");
+    let hp_before = state.brick_hp[idx];
+    let center = state.brick_center(idx);
+    state.ball.owner = 0;
+    state.ball.pos = center;
+    state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
+    let out = step(&mut state, FrameInput::default());
+    assert_eq!(state.brick_hp[idx], hp_before - 1);
+    assert_eq!(state.ball.owner, OWNER_NEUTRAL);
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::BallNeutralized)));
+}
+
+#[test]
+fn ball_bounces_off_brick_from_below() {
+    let mut state = new_match(7);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    let idx = state
+        .brick_hp
+        .iter()
+        .position(|&h| h > 0)
+        .expect("alive brick");
+    let center = state.brick_center(idx);
+    let half_h = crate::rules::BRICK_H / 2;
+    // Approach from below like a bottom-player serve.
+    state.ball.owner = 1;
+    state.ball.pos = crate::Vec2::new(center.x, center.y - half_h - crate::rules::BALL_R - FP_SCALE);
+    state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
+    let score_before = state.score[1];
+    let _ = step(&mut state, FrameInput::default());
+    assert!(
+        state.ball.vel.y < 0,
+        "ball should reverse Y after brick bounce, got {:?}",
+        state.ball.vel
+    );
+    assert!(
+        state.ball.pos.y < center.y,
+        "ball should separate below the brick"
+    );
+    let _ = score_before;
+}
+
+#[test]
+fn brick_break_awards_score_to_owner() {
+    let mut state = new_match(11);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    let idx = state
+        .brick_hp
+        .iter()
+        .position(|&h| h == 1)
+        .expect("1-hp brick");
+    let center = state.brick_center(idx);
+    state.ball.owner = 0;
+    state.ball.pos = center;
+    state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
+    let before = state.score[0];
+    let out = step(&mut state, FrameInput::default());
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::BrickBreak { .. })));
+    assert_eq!(state.score[0], before + 1);
+}
+
+#[test]
+fn three_breaks_wins_round_early() {
+    let mut state = new_match(29);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    state.round_timer = crate::rules::ROUND_DURATION_FRAMES;
+    state.round_breaks = [3, 0];
+    state.ball.owner = OWNER_NEUTRAL;
+    state.ball.pos = crate::Vec2::new(0, 0);
+    state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
+    // Keep some bricks alive so this is not a board-clear win.
+    assert!(state.brick_hp.iter().any(|&h| h > 0));
+    let out = step(&mut state, FrameInput::default());
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert_eq!(state.rounds_won[0], 1);
+}
+
+#[test]
+fn timeout_most_breaks_wins_round() {
+    let mut state = new_match(19);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    state.round_timer = 0;
+    state.round_breaks = [3, 1];
+    state.ball.owner = OWNER_NEUTRAL;
+    state.ball.pos = crate::Vec2::new(0, 0);
+    state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
+    let out = step(&mut state, FrameInput::default());
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert_eq!(state.rounds_won[0], 1);
+    assert_eq!(state.phase, crate::MatchPhase::Serving);
+}
+
+#[test]
+fn timeout_equal_breaks_ties_round() {
+    let mut state = new_match(21);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    state.round_timer = 0;
+    state.round_breaks = [2, 2];
+    state.ball.owner = OWNER_NEUTRAL;
+    state.ball.pos = crate::Vec2::new(0, 0);
+    state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
+    let out = step(&mut state, FrameInput::default());
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::RoundTie)));
+    assert_eq!(state.rounds_won, [0, 0]);
+    assert_eq!(state.phase, crate::MatchPhase::Serving);
+}
+
+#[test]
+fn second_round_win_sets_match_over() {
+    let mut state = new_match(23);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    state.rounds_won = [1, 0];
+    state.round_timer = 0;
+    state.round_breaks = [4, 0];
+    state.ball.owner = OWNER_NEUTRAL;
+    state.ball.pos = crate::Vec2::new(0, 0);
+    state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
+    let out = step(&mut state, FrameInput::default());
+    assert!(out
+        .events
+        .iter()
+        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert_eq!(state.rounds_won[0], 2);
+    assert_eq!(state.phase, crate::MatchPhase::MatchOver);
+}
+
+#[test]
+fn paddle_shove_launches_wild_brick() {
+    let mut state = new_match(3);
+    state.phase = crate::MatchPhase::Rally;
+    state.serve_timer = 0;
+    state.wild_bricks[0].active = true;
+    state.wild_bricks[0].hp = 1;
+    state.wild_bricks[0].x = 0;
+    state.wild_bricks[0].y = state.paddles[0].y;
+    state.wild_bricks[0].vx = 0;
+    state.wild_bricks[0].vy = 0;
+    state.paddles[0].x = -crate::rules::WILD_BRICK_HALF;
+    state.paddles[0].vx = crate::rules::PADDLE_SPEED * 2;
+    let out = step(&mut state, FrameInput::default());
+    assert!(out.events.iter().any(|e| matches!(
+        e,
+        crate::ConfirmedEvent::WildPaddleKnock { player: 0, .. }
+    )));
+    assert!(
+        state.wild_bricks[0].vx.abs() > 0 || state.wild_bricks[0].vy.abs() > 0,
+        "tier-1 wild should receive shove velocity"
+    );
 }

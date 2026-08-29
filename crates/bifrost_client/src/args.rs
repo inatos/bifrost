@@ -36,8 +36,18 @@ impl Args {
             if let Some(args) = query_args() {
                 return args;
             }
+            // Browser WASM has no CLI argv — clap::parse() panics here.
+            return Self::parse_from(["bifrost_client"]);
         }
-        Self::parse()
+        #[cfg(not(target_arch = "wasm32"))]
+        return Self::parse();
+        #[cfg(target_arch = "wasm32")]
+        unreachable!();
+    }
+
+    /// Private room with join ticket (never loaded from URL query strings).
+    pub fn is_online(&self) -> bool {
+        self.room.is_some() && !self.bot && self.ticket.is_some()
     }
 }
 
@@ -51,14 +61,17 @@ fn query_args() -> Option<Args> {
         return None;
     }
     let mut args: Args = serde_qs::from_str(&search).ok()?;
+    // Tickets stay in tab memory (shell → bifrost_connect). URL tickets trigger save/login prompts on some desktops.
+    args.ticket = None;
     if args.room.is_some() && !args.bot {
         args.signal = wasm_signal_base();
     }
     Some(args)
 }
 
+/// Matchbox base for the page origin (`ws(s)://host/signal`) — used on Create/Join.
 #[cfg(target_arch = "wasm32")]
-fn wasm_signal_base() -> String {
+pub fn wasm_signal_base() -> String {
     let window = web_sys::window().expect("window");
     let loc = window.location();
     let scheme = if loc.protocol().unwrap_or_default() == "https:" {

@@ -6,14 +6,15 @@
 - TLS email for ACME (`ACME_EMAIL`)
 - Optional Coturn at `turn.arathyll.com` for relay fallback
 
-## Compose
+## Local preview
 
 ```bash
-cp .env.example deploy/.env
-# edit secrets
 cd deploy
-docker compose up -d --build
+docker compose -f docker-compose.local.yml up -d --build
+# http://127.0.0.1:1334/  ·  /healthz  ·  Create room / Play bot
 ```
+
+Arathyll Dev Lab embeds this origin via `PUBLIC_BIFROST_ORIGIN` (default `http://127.0.0.1:1334` in local Compose override).
 
 Services:
 

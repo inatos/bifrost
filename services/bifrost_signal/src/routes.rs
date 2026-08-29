@@ -9,7 +9,8 @@ use axum::{
 };
 use bifrost_protocol::{
     CreateRoomRequest, CreateRoomResponse, HealthResponse, JoinRoomRequest, JoinRoomResponse,
-    RoomInfoResponse, TurnCredentialsResponse, PROTOCOL_VERSION,
+    LeaveRoomRequest, LeaveRoomResponse, RoomInfoResponse, TurnCredentialsResponse,
+    PROTOCOL_VERSION,
 };
 use std::sync::Arc;
 
@@ -38,7 +39,7 @@ pub async fn create_room(
 ) -> Result<Json<CreateRoomResponse>, (StatusCode, String)> {
     assert_protocol(body.protocol_version).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let config = AppConfig::from_env();
-    let room = store.create();
+    let room = store.create(&body.display_name);
     Ok(Json(CreateRoomResponse {
         room_code: room.code.clone(),
         host_ticket: room.host_ticket.clone(),
@@ -54,11 +55,14 @@ pub async fn join_room(
     assert_protocol(body.protocol_version).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let config = AppConfig::from_env();
     let code = body.room_code.to_uppercase();
-    let (room, _role, ticket) = store.join(&code).map_err(|e| (StatusCode::CONFLICT, e))?;
+    let (room, _role, ticket) = store
+        .join(&code, &body.display_name)
+        .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(JoinRoomResponse {
         guest_ticket: ticket.clone(),
         signal_url: config.room_signal_url(&room.code, &ticket),
         expires_at: room.expires_at.to_rfc3339(),
+        host_name: room.host_name,
     }))
 }
 
@@ -66,12 +70,30 @@ pub async fn room_info(
     State(store): State<Arc<RoomStore>>,
     Path(code): Path<String>,
 ) -> Result<Json<RoomInfoResponse>, StatusCode> {
-    let room = store.get(&code.to_uppercase()).ok_or(StatusCode::NOT_FOUND)?;
+    let upper = code.to_uppercase();
+    let room = store.get(&upper).ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(RoomInfoResponse {
         room_code: room.code,
-        players: store.players_in_room(&code.to_uppercase()),
+        players: store.players_in_room(&upper),
         max_players: 2,
         expires_at: room.expires_at.to_rfc3339(),
+        host_name: room.host_name,
+        guest_name: room.guest_name,
+    }))
+}
+
+pub async fn leave_room(
+    State(store): State<Arc<RoomStore>>,
+    Json(body): Json<LeaveRoomRequest>,
+) -> Result<Json<LeaveRoomResponse>, (StatusCode, String)> {
+    assert_protocol(body.protocol_version).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let code = body.room_code.to_uppercase();
+    let (role, lobby_closed) = store
+        .leave(&code, &body.ticket)
+        .map_err(|e| (StatusCode::CONFLICT, e))?;
+    Ok(Json(LeaveRoomResponse {
+        lobby_closed,
+        role,
     }))
 }
 

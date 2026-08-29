@@ -1,0 +1,29 @@
+# Local preview — plain HTTP on :1334 (no ACME). Production uses Caddyfile.
+
+:1334 {
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Allow Arathyll Lab iframe embeds on localhost preview.
+		Content-Security-Policy "frame-ancestors 'self' http://127.0.0.1:3000 http://localhost:3000"
+		-Server
+	}
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy signal:8787
+	}
+
+	handle /signal/* {
+		uri strip_prefix /signal
+		reverse_proxy signal:3536
+	}
+
+	handle /healthz {
+		reverse_proxy signal:8787
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

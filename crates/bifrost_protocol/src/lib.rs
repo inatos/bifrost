@@ -14,9 +14,15 @@ pub enum PlayerRole {
     Guest,
 }
 
+fn empty_name() -> String {
+    String::new()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateRoomRequest {
     pub protocol_version: u32,
+    #[serde(default = "empty_name")]
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +37,8 @@ pub struct CreateRoomResponse {
 pub struct JoinRoomRequest {
     pub protocol_version: u32,
     pub room_code: String,
+    #[serde(default = "empty_name")]
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,8 @@ pub struct JoinRoomResponse {
     pub guest_ticket: String,
     pub signal_url: String,
     pub expires_at: String,
+    #[serde(default = "empty_name")]
+    pub host_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +56,24 @@ pub struct RoomInfoResponse {
     pub players: u8,
     pub max_players: u8,
     pub expires_at: String,
+    #[serde(default = "empty_name")]
+    pub host_name: String,
+    #[serde(default = "empty_name")]
+    pub guest_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeaveRoomRequest {
+    pub protocol_version: u32,
+    pub room_code: String,
+    pub ticket: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeaveRoomResponse {
+    /// True when the host left and the room was deleted.
+    pub lobby_closed: bool,
+    pub role: PlayerRole,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

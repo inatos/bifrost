@@ -1,0 +1,59 @@
+# Local Bifrost preview — independent of Arathyll Compose / production Caddy.
+#   cd web/bifrost/deploy && docker compose -f docker-compose.local.yml up -d --build
+#
+# Game shell: http://127.0.0.1:1334/
+# Health:     http://127.0.0.1:1334/healthz
+
+services:
+  signal:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.signal
+    restart: unless-stopped
+    environment:
+      BIND_ADDR: 0.0.0.0
+      PORT: 8787
+      MATCHBOX_PORT: 3536
+      PUBLIC_ORIGIN: http://127.0.0.1:1334
+      PUBLIC_WS_ORIGIN: ws://127.0.0.1:1334/signal
+      ROOM_TTL_SECS: 900
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_TTL_SECS: 600
+      RUST_LOG: bifrost_signal=info,tower_http=info
+    expose:
+      - "8787"
+      - "3536"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      signal:
+        condition: service_healthy
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    ports:
+      - "1334:1334"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data_local:/data
+      - caddy_config_local:/config
+    depends_on:
+      - web
+      - signal
+
+volumes:
+  caddy_data_local:
+  caddy_config_local:

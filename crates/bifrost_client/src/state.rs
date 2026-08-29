@@ -38,4 +38,9 @@ pub struct UiChannel {
     pub room_code: Option<String>,
     pub invite_url: Option<String>,
     pub error: Option<String>,
+    /// idle | host_wait | guest_wait | ready | match
+    pub lobby_phase: String,
+    pub lobby_waiting: bool,
+    /// Connected peer count including self (1 while waiting, 2 when ready).
+    pub lobby_peers: u8,
 }
