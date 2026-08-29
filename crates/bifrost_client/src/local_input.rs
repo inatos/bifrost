@@ -49,7 +49,8 @@ pub fn local_input_mask(
         focus.note_mouse_at(0.0, 0.0);
         angle |= mouse_snapback_angle(windows, camera_q, paddle_x, paddle_y);
     }
-    // While RMB snapback stance: feed move bits toward cursor so release aims 360°.
+    // While RMB snapback stance: feed move bits toward cursor so release can
+    // invert to a full-360° beam (opposite stick/cursor release toward center).
     let mouse_aim = if mouse.pressed(MouseButton::Right) {
         mouse_aim_dirs(windows, camera_q, paddle_x, paddle_y)
     } else {
@@ -141,13 +142,37 @@ fn angle_mask(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>) -> u8 {
     let mut mask = 0u8;
     let mut ccw = keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::ArrowUp);
     let mut cw = keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::ArrowDown);
+    // Cardinals travel with angle bits so the sim can latch 2D snap aim
+    // (R-stick at 6:00 → fire at 12:00). Movement is suppressed while winding.
+    if keys.pressed(KeyCode::ArrowLeft) {
+        mask |= INPUT_LEFT;
+    }
+    if keys.pressed(KeyCode::ArrowRight) {
+        mask |= INPUT_RIGHT;
+    }
+    if keys.pressed(KeyCode::ArrowUp) {
+        mask |= INPUT_UP;
+    }
+    if keys.pressed(KeyCode::ArrowDown) {
+        mask |= INPUT_DOWN;
+    }
     for gamepad in gamepads.iter() {
         let stick = gamepad.right_stick();
-        if stick.x < -STICK_THRESHOLD || stick.y > STICK_THRESHOLD {
+        if stick.x < -STICK_THRESHOLD {
             ccw = true;
+            mask |= INPUT_LEFT;
         }
-        if stick.x > STICK_THRESHOLD || stick.y < -STICK_THRESHOLD {
+        if stick.x > STICK_THRESHOLD {
             cw = true;
+            mask |= INPUT_RIGHT;
+        }
+        if stick.y > STICK_THRESHOLD {
+            ccw = true;
+            mask |= INPUT_UP;
+        }
+        if stick.y < -STICK_THRESHOLD {
+            cw = true;
+            mask |= INPUT_DOWN;
         }
         break;
     }
@@ -244,12 +269,19 @@ fn embed_angle_mask() -> u8 {
         let Some((rx, ry)) = read_embed_rstick() else {
             return 0;
         };
+        // Embed pad Y matches left-stick embed (y- = up). Include aim cardinals.
         let mut mask = 0u8;
-        if rx < -STICK_THRESHOLD || ry < -STICK_THRESHOLD {
-            mask |= INPUT_ANGLE_CCW;
+        if rx < -STICK_THRESHOLD {
+            mask |= INPUT_ANGLE_CCW | INPUT_LEFT;
         }
-        if rx > STICK_THRESHOLD || ry > STICK_THRESHOLD {
-            mask |= INPUT_ANGLE_CW;
+        if rx > STICK_THRESHOLD {
+            mask |= INPUT_ANGLE_CW | INPUT_RIGHT;
+        }
+        if ry < -STICK_THRESHOLD {
+            mask |= INPUT_ANGLE_CCW | INPUT_UP;
+        }
+        if ry > STICK_THRESHOLD {
+            mask |= INPUT_ANGLE_CW | INPUT_DOWN;
         }
         mask
     }
@@ -424,12 +456,18 @@ fn embed_keys_state() -> (u8, u8, u8) {
         jump |= INPUT_JUMP;
     }
     let spin = if down("KeyX") { INPUT_SPIN } else { 0 };
-    // Angle from arrow keys via embed.
-    if down("ArrowLeft") || down("ArrowUp") {
-        mask |= INPUT_ANGLE_CCW;
+    // Angle + aim cardinals from arrow keys via embed.
+    if down("ArrowLeft") {
+        mask |= INPUT_ANGLE_CCW | INPUT_LEFT;
     }
-    if down("ArrowRight") || down("ArrowDown") {
-        mask |= INPUT_ANGLE_CW;
+    if down("ArrowRight") {
+        mask |= INPUT_ANGLE_CW | INPUT_RIGHT;
+    }
+    if down("ArrowUp") {
+        mask |= INPUT_ANGLE_CCW | INPUT_UP;
+    }
+    if down("ArrowDown") {
+        mask |= INPUT_ANGLE_CW | INPUT_DOWN;
     }
     (mask, jump, spin)
 }

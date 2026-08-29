@@ -211,6 +211,8 @@ fn read_local_inputs(
             angle_was_held: false,
             angle_strike: 0,
             jump_peak_z: 0,
+            snap_aim_x: 0,
+            snap_aim_y: 0,
         });
     // Prefer visual anchor so rollback / input-delay does not thrash mouse chase.
     let (aim_x, aim_y) = anchor

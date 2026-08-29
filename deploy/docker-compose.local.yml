@@ -1,5 +1,5 @@
-# Local Bifrost preview — independent of Arathyll Compose / production Caddy.
-#   cd web/bifrost/deploy && docker compose -f docker-compose.local.yml up -d --build
+# Local Bifrost preview (HTTP on :1334).
+#   cd deploy && docker compose -f docker-compose.local.yml up -d --build
 #
 # Game shell: http://127.0.0.1:1334/
 # Health:     http://127.0.0.1:1334/healthz

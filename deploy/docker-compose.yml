@@ -1,4 +1,7 @@
-# Bifrost production stack — independent of Arathyll nexus hosts.
+# Bifrost production stack.
+
+# Required in deploy/.env (see .env.example):
+#   BIFROST_HOST, PUBLIC_ORIGIN, PUBLIC_WS_ORIGIN, ACME_EMAIL
 
 services:
   signal:
@@ -10,8 +13,8 @@ services:
       BIND_ADDR: 0.0.0.0
       PORT: 8787
       MATCHBOX_PORT: 3536
-      PUBLIC_ORIGIN: https://bifrost.arathyll.com
-      PUBLIC_WS_ORIGIN: wss://bifrost.arathyll.com/signal
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in deploy/.env}
+      PUBLIC_WS_ORIGIN: ${PUBLIC_WS_ORIGIN:?set PUBLIC_WS_ORIGIN in deploy/.env}
       ROOM_TTL_SECS: 900
       TURN_SECRET: ${TURN_SECRET:-}
       TURN_URLS: ${TURN_URLS:-}
@@ -43,6 +46,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      BIFROST_HOST: ${BIFROST_HOST:?set BIFROST_HOST in deploy/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

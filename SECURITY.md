@@ -1,6 +1,6 @@
 # Security policy
 
-Report issues to the repository owner via GitHub private advisory or the Arathyll contact channel.
+Report issues to the repository owner via GitHub private advisory.
 
 Scope: `bifrost_signal` room API, WebSocket auth, TURN credential minting, and the public WASM client.
 

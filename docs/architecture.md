@@ -27,4 +27,4 @@ Only `WorldState` advances during rollback. Audio/VFX read **confirmed** `Confir
 
 ## Hosting boundary
 
-`bifrost.arathyll.com` is deployed from this repository. The Arathyll dev site links out; it does not iframe the game (CSP + separate origin).
+Deploy from this repository with your own DNS name (`BIFROST_HOST`). Keep the game on its own origin if a parent site embeds or links to it (CSP `frame-ancestors` + separate host).

@@ -1,10 +1,11 @@
 const $ = (id) => document.getElementById(id);
 
-/** Ephemeral tab session — no sessionStorage, URL tickets, or page reloads. */
+/** Live room+ticket for this tab. Persisted briefly so refresh can leave the lobby. */
 const sessionState = {
   room: null,
   ticket: null,
 };
+const ONLINE_SESSION_KEY = "bifrost-online-session";
 
 let wasmReady = false;
 let panel;
@@ -162,9 +163,99 @@ function updateLaunchEnabled() {
   setLaunchEnabled(true);
 }
 
+function persistOnlineSession() {
+  try {
+    if (sessionState.room && sessionState.ticket) {
+      sessionStorage.setItem(
+        ONLINE_SESSION_KEY,
+        JSON.stringify({
+          room: sessionState.room,
+          ticket: sessionState.ticket,
+          role: lobbyRole,
+        })
+      );
+    } else {
+      sessionStorage.removeItem(ONLINE_SESSION_KEY);
+    }
+  } catch (_) {}
+}
+
+function clearPersistedOnlineSession() {
+  try {
+    sessionStorage.removeItem(ONLINE_SESSION_KEY);
+  } catch (_) {}
+}
+
+function readPersistedOnlineSession() {
+  try {
+    const raw = sessionStorage.getItem(ONLINE_SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.room || !data?.ticket) return null;
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Best-effort leave during unload (refresh / close tab). */
+function leaveRoomBeacon(room, ticket) {
+  if (!room || !ticket) return;
+  const body = JSON.stringify({
+    protocol_version: 1,
+    room_code: room,
+    ticket,
+  });
+  const url = "/api/rooms/leave";
+  try {
+    if (navigator.sendBeacon) {
+      const ok = navigator.sendBeacon(
+        url,
+        new Blob([body], { type: "application/json" })
+      );
+      if (ok) return;
+    }
+  } catch (_) {}
+  try {
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      keepalive: true,
+    });
+  } catch (_) {}
+}
+
+function leaveOnlineSessionOnUnload() {
+  // Keep sessionStorage so a failed beacon can still be reclaimed on next load.
+  if (sessionState.room && sessionState.ticket) {
+    leaveRoomBeacon(sessionState.room, sessionState.ticket);
+    return;
+  }
+  const persisted = readPersistedOnlineSession();
+  if (persisted) {
+    leaveRoomBeacon(persisted.room, persisted.ticket);
+  }
+}
+
+/** If unload leave missed, drop any leftover ticket on next load. */
+async function reclaimStaleOnlineSession() {
+  const persisted = readPersistedOnlineSession();
+  if (!persisted) return;
+  clearPersistedOnlineSession();
+  try {
+    await api("/api/rooms/leave", {
+      protocol_version: 1,
+      room_code: persisted.room,
+      ticket: persisted.ticket,
+    });
+  } catch (_) {}
+}
+
 function clearRoomFields() {
   sessionState.room = null;
   sessionState.ticket = null;
+  clearPersistedOnlineSession();
   if (roomInput) {
     roomInput.value = "";
     roomInput.readOnly = false;
@@ -307,6 +398,7 @@ async function leaveRoomOnServer() {
   } catch (_) {
     /* room may already be gone */
   }
+  clearPersistedOnlineSession();
 }
 
 function dismissOnlineSession(promptMsg) {
@@ -1264,6 +1356,7 @@ function connectOnline(room, ticket, role = "host") {
   sessionState.room = room;
   sessionState.ticket = ticket;
   lobbyRole = role;
+  persistOnlineSession();
   setPlayMode(role === "guest" ? "join" : "create");
   if (roomInput) roomInput.value = room;
   const embedRoom = $("embed-room-code");
@@ -2049,11 +2142,15 @@ document.addEventListener("DOMContentLoaded", () => {
   detectEmbedded();
   focusPlaySurface();
   bindButtonPressFeedback();
+  void reclaimStaleOnlineSession();
 });
+
+window.addEventListener("pagehide", leaveOnlineSessionOnUnload);
+window.addEventListener("beforeunload", leaveOnlineSessionOnUnload);
 
 bindUi();
 
-/** Arathyll-style press ripple on buttons (cyan/gold aurora). */
+/** Press ripple on buttons (cyan/gold aurora). */
 function spawnBifrostRipple(clientX, clientY) {
   try {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;

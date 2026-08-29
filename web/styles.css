@@ -101,7 +101,7 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
   background: rgba(255, 255, 255, 0.04);
 }
 
-/* Press ripple — Bifrost aurora (cyan / gold), mirrors Arathyll majik feedback. */
+/* Press ripple — Bifrost aurora (cyan / gold). */
 .bifrost-ripple {
   position: fixed;
   z-index: 5000;
@@ -881,8 +881,9 @@ html.embedded .embed-options .embed-name {
   cursor: pointer;
 }
 html.embedded .embed-options .embed-name {
-  width: 4.25rem;
-  max-width: 4.25rem;
+  /* 40% longer than prior 4.25rem — room for 7-letter names */
+  width: 5.95rem;
+  max-width: 5.95rem;
   text-transform: none;
   letter-spacing: 0.02em;
   font-weight: 600;
@@ -1011,7 +1012,7 @@ body.embedded .stage {
   grid-template-columns: unset !important;
   align-items: stretch;
   justify-content: center;
-  /* Leave room for Arathyll lock chip; embed options sit above. */
+  /* Leave room for parent-page chrome; embed options sit above. */
   padding: 0.35rem 0.75rem 1.25rem;
   gap: 0;
   height: auto;

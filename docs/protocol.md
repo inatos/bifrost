@@ -16,7 +16,7 @@ Response:
 {
   "room_code": "AB12CD34",
   "host_ticket": "<url-safe token>",
-  "signal_url": "https://bifrost.arathyll.com/signal/AB12CD34/<token>",
+  "signal_url": "https://bifrost.example.com/signal/AB12CD34/<token>",
   "expires_at": "2026-08-24T12:00:00Z"
 }
 ```

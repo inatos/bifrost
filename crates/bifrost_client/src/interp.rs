@@ -98,6 +98,8 @@ fn default_paddle() -> PaddleState {
         ground_pounding: false,
         angle: 0,
         angle_was_held: false,
+        snap_aim_x: 0,
+        snap_aim_y: 0,
         angle_strike: 0,
         jump_peak_z: 0,
     }
@@ -157,6 +159,8 @@ fn lerp_paddle(a: &PaddleState, b: &PaddleState, t: f32) -> PaddleState {
         ground_pounding: b.ground_pounding,
         angle: lerp_i32(a.angle, b.angle, t),
         angle_was_held: b.angle_was_held,
+        snap_aim_x: b.snap_aim_x,
+        snap_aim_y: b.snap_aim_y,
         angle_strike: lerp_i32(a.angle_strike, b.angle_strike, t),
         jump_peak_z: lerp_i32(a.jump_peak_z, b.jump_peak_z, t),
     }

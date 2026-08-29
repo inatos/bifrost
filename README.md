@@ -1,33 +1,35 @@
 # Bifrost
 
-**Live demo:** [bifrost.arathyll.com](https://bifrost.arathyll.com) · Lab embed on [dev.arathyll.com](https://dev.arathyll.com)
-
 Bifrost is a compact competitive Breakout/Pong arena used to demonstrate **GGRS rollback** over **WebRTC** in the browser. The simulation is deterministic and Bevy-free at the core; rendering and networking wrap the same `WorldState` snapshot used for rollback.
 
 ## Screenshots
 
-![Ready Up (host)](docs/screenshots/ready-up-host.png)
+![Gameplay](docs/screenshots/01-gameplay.png)
 
-*Online Ready Up: both players confirm with A / Space before serve.*
+*In match: Snapback force-wave, paddles, bricks, and Lab HUD.*
 
-![Snapback wave](docs/screenshots/snapback-wave.png)
+![Results](docs/screenshots/02-results.png)
 
-*Snapback force-wave: omnidirectional aim, team-colored beams, charge recoil.*
+*Post-match results: scores, ready seats, Play Again / Match Menu / Quit.*
 
-![Ready Up (join)](docs/screenshots/ready-up-join.png)
+![Lobby (host)](docs/screenshots/03-lobby-host.png)
 
-*Join lobby: paste room code once; Launch greys until you leave.*
+*Host lobby: share the room code while waiting for a join.*
 
-![In match](docs/screenshots/in-match.png)
+![Ready Up](docs/screenshots/04-ready-up.png)
 
-*In match: mouse chase stops under the cursor (deadzone ≥ two frames of paddle speed).*
+*Ready Up (host + client): both seats must confirm before the match starts.*
+
+![Multiplayer gameplay](docs/screenshots/05-multiplayer-gameplay.png)
+
+*Online match: host and client views side by side.*
 
 ## What you can try
 
 - **Play bot**: instant local match, Ready Up, then serve
 - **Private rooms**: Create / Join with ephemeral codes; Launch once then grey until Quit
-- **Leave / disconnect**: confirm before leave; host close or guest leave toasts; mid-match peer drop returns to Match Menu
-- **Snapback**: wind paddle (±180°) or aim with stick / RMB; release a directional force-wave with charge-scaled reach + recoil
+- **Leave / disconnect**: confirm before leave; host close or guest leave toasts; mid-match peer drop returns to Match Menu; refresh closes the lobby
+- **Snapback**: wind paddle (±180°) with arrows / R-stick / RMB; aim with move stick or cursor while winding; release fires a force-wave opposite the stick/cursor release direction (toward the deadzone)
 - **Spin**: hold X / LMB / RT; release for LTTP sweep (clangs with opposing attacks)
 - **Jump / pound**: Space / A; jump again in air for ground-pound AoE
 - **Rollback inspector**: RTT, input delay, rollback depth, checksum
@@ -43,7 +45,7 @@ Bifrost is a compact competitive Breakout/Pong arena used to demonstrate **GGRS 
 | Ground pound | Jump again airborne | (none) | A again |
 | Spin | Hold X | Hold LMB | West / RT |
 
-Mouse chase uses visual paddle pose (`MouseAimAnchor`) and an unshaken camera for cursor→world. Mid-match hard disconnects only on GGRS `Disconnected` (not transient `NetworkInterrupted`).
+Snapback beam fires **opposite** the latched move/aim direction (stick returning to center / deadzone). Wind range is ±180°; there is no 120° aim cone. Mouse chase uses visual paddle pose (`MouseAimAnchor`) and an unshaken camera for cursor→world. Mid-match hard disconnects only on GGRS `Disconnected` (not transient `NetworkInterrupted`). Page refresh / tab close leaves the room via `sendBeacon` (with sessionStorage reclaim on next load).
 
 ## Stack (pinned)
 
@@ -92,7 +94,7 @@ cargo clippy -p bifrost_sim -p bifrost_signal -- -D warnings
 
 ## Deploy
 
-See [docs/deployment.md](docs/deployment.md). Production runs as an **independent** stack at `bifrost.arathyll.com` (not embedded in the Arathyll nexus Compose).
+See [docs/deployment.md](docs/deployment.md). Production is a small Compose stack (`signal` + `web` + Caddy); set `BIFROST_HOST` / `PUBLIC_ORIGIN` in `deploy/.env`.
 
 ## Docs
 
@@ -104,4 +106,5 @@ See [docs/deployment.md](docs/deployment.md). Production runs as an **independen
 
 ## License
 
-Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.
+Licensed under [GPL-3.0-or-later](LICENSE) (GNU General Public License v3.0 or later).
+The bundled Fira Mono font remains under its [SIL Open Font License](assets/fonts/FiraMono-LICENSE.md).

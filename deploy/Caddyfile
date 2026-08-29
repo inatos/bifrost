@@ -13,7 +13,7 @@
 	encode zstd gzip
 }
 
-bifrost.arathyll.com {
+{$BIFROST_HOST} {
 	import security
 
 	handle /api/* {

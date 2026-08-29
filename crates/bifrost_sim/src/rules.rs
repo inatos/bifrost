@@ -1,5 +1,5 @@
 use crate::fixed::{Vec2, FP_SCALE};
-use crate::input::{FrameInput, INPUT_JUMP, INPUT_SPIN};
+use crate::input::{FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_JUMP, INPUT_SPIN};
 use crate::paddle_geom::{JUMP_GRAVITY, JUMP_INITIAL_V, MAX_JUMP_Z, paddle_airborne};
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ pub const PADDLE_ANGLE_MAX: i32 = 180 * FP_SCALE;
 pub const PADDLE_ANGLE_SPEED: i32 = 6 * FP_SCALE;
 /// Base spring return; scales up with wind-up (rubber band).
 pub const PADDLE_ANGLE_SPRING: i32 = 22 * FP_SCALE;
-/// Strike impulse at full wind-up (±120°) — hard rubber slap (ball / wave).
+/// Strike impulse at full wind-up (±180°): hard rubber slap (ball / wave).
 pub const PADDLE_ANGLE_STRIKE_MAX: i32 = 58 * FP_SCALE;
 /// Snapback force-wave projectile duration (frames @ 60Hz ≈ 2.5s).
 pub const ANGLE_WAVE_DURATION: u32 = 150;
@@ -113,6 +113,9 @@ pub struct PaddleState {
     pub angle: i32,
     /// Prior-frame angle input held (for spring-release strike edge).
     pub angle_was_held: bool,
+    /// Latched move/aim dir while winding (−1/0/1); used as beam on release.
+    pub snap_aim_x: i8,
+    pub snap_aim_y: i8,
     /// One-shot strike impulse residual after spring release (decays).
     pub angle_strike: i32,
     /// Peak jump_z reached this airtime (scales ground-pound).
@@ -252,6 +255,8 @@ impl WorldState {
             ground_pounding: false,
             angle: 0,
             angle_was_held: false,
+            snap_aim_x: 0,
+            snap_aim_y: 0,
             angle_strike: 0,
             jump_peak_z: 0,
         };
@@ -271,6 +276,8 @@ impl WorldState {
             ground_pounding: false,
             angle: 0,
             angle_was_held: false,
+            snap_aim_x: 0,
+            snap_aim_y: 0,
             angle_strike: 0,
             jump_peak_z: 0,
         };
@@ -361,6 +368,8 @@ fn default_paddle() -> PaddleState {
         ground_pounding: false,
         angle: 0,
         angle_was_held: false,
+        snap_aim_x: 0,
+        snap_aim_y: 0,
         angle_strike: 0,
         jump_peak_z: 0,
     }
@@ -919,10 +928,18 @@ fn move_paddles(
             p.jump_was_held = jump_down;
 
             let angle_dir = FrameInput::angle_dir(mask);
-            let angle_held = angle_dir != 0;
+            // Diagonals can set both CW+CCW (angle_dir==0) but still count as held.
+            let angle_held = (mask & (INPUT_ANGLE_CCW | INPUT_ANGLE_CW)) != 0;
             if angle_held {
-                p.angle = (p.angle + angle_dir * PADDLE_ANGLE_SPEED)
-                    .clamp(-PADDLE_ANGLE_MAX, PADDLE_ANGLE_MAX);
+                if angle_dir != 0 {
+                    p.angle = (p.angle + angle_dir * PADDLE_ANGLE_SPEED)
+                        .clamp(-PADDLE_ANGLE_MAX, PADDLE_ANGLE_MAX);
+                }
+                // Latch stick/cursor/arrow aim while winding (clears on release frame).
+                if dx != 0 || dy != 0 {
+                    p.snap_aim_x = dx.clamp(-1, 1) as i8;
+                    p.snap_aim_y = dy.clamp(-1, 1) as i8;
+                }
             } else if p.angle_was_held && p.angle.abs() > FP_SCALE {
                 // Release spring → strike residual + outward force-wave projectile.
                 let t = p.angle.abs() as i64 * 1000 / PADDLE_ANGLE_MAX.max(1) as i64;
@@ -931,15 +948,19 @@ fn move_paddles(
                 p.angle_strike = strike.max(PADDLE_ANGLE_STRIKE_MAX / 5);
                 let face_y = if player == 0 { -1 } else { 1 };
                 let (c, s) = super::paddle_geom::cos_sin_deg(p.angle / FP_SCALE);
-                // Face-normal beam from paddle tilt.
-                let mut nx = -face_y * s;
-                let mut ny = face_y * c;
-                // Move stick / aim: primary direction when held (true 360°).
-                if dx != 0 || dy != 0 {
+                // Fire opposite the release/push vector (stick at 6:00 → beam at 12:00).
+                // Prefer latched aim, then same-frame move, else opposite face-normal.
+                let (nx, ny) = if p.snap_aim_x != 0 || p.snap_aim_y != 0 {
+                    let ax = p.snap_aim_x as i32;
+                    let ay = p.snap_aim_y as i32;
+                    let len = crate::fixed::isqrt((ax * ax + ay * ay) as i64).max(1) as i32;
+                    (-ax * FP_SCALE / len, -ay * FP_SCALE / len)
+                } else if dx != 0 || dy != 0 {
                     let len = crate::fixed::isqrt((dx * dx + dy * dy) as i64).max(1) as i32;
-                    nx = dx * FP_SCALE / len;
-                    ny = dy * FP_SCALE / len;
-                }
+                    (-dx * FP_SCALE / len, -dy * FP_SCALE / len)
+                } else {
+                    (face_y * s, -face_y * c)
+                };
                 // Blowback opposite the beam, proportional to charge.
                 let recoil = (strike as i64 * 7 / 10).max((3 * FP_SCALE) as i64) as i32;
                 p.vx -= nx * recoil / FP_SCALE.max(1);
@@ -953,6 +974,8 @@ fn move_paddles(
                 let wave_life = (ANGLE_WAVE_DURATION as i64 * (180 + tension * 3 / 4) / 1000)
                     .clamp(28, ANGLE_WAVE_DURATION as i64) as u32;
                 angle_wave_spawn = Some((nx, ny, radius, power, wave_life));
+                p.snap_aim_x = 0;
+                p.snap_aim_y = 0;
             } else if p.angle != 0 {
                 // Elastic snap: base spring × wind-up (near-full charge returns in ~2–3 frames).
                 let wind = p.angle.abs() as i64 * PADDLE_ANGLE_SPRING as i64 * 4
@@ -961,9 +984,14 @@ fn move_paddles(
                     (PADDLE_ANGLE_SPRING as i64 + wind).max(PADDLE_ANGLE_SPRING as i64) as i32;
                 if p.angle.abs() <= step {
                     p.angle = 0;
+                    p.snap_aim_x = 0;
+                    p.snap_aim_y = 0;
                 } else {
                     p.angle -= p.angle.signum() * step;
                 }
+            } else {
+                p.snap_aim_x = 0;
+                p.snap_aim_y = 0;
             }
             p.angle_was_held = angle_held;
             if p.angle_strike > 0 {
@@ -1023,11 +1051,15 @@ fn move_paddles(
             let p = &mut state.paddles[player];
             let jump_held = (mask & INPUT_JUMP) != 0;
 
-            if dx != 0 {
-                p.x += dx * PADDLE_SPEED;
-            }
-            if dy != 0 {
-                p.y += dy * PADDLE_SPEED;
+            // Aim cardinals ride on move bits while winding — don't walk the paddle.
+            let winding = (mask & (INPUT_ANGLE_CCW | INPUT_ANGLE_CW)) != 0;
+            if !winding {
+                if dx != 0 {
+                    p.x += dx * PADDLE_SPEED;
+                }
+                if dy != 0 {
+                    p.y += dy * PADDLE_SPEED;
+                }
             }
             p.x += p.vx;
             p.y += p.vy;
