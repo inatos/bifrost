@@ -248,6 +248,70 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
   background: #07060c;
   position: relative;
   z-index: 1;
+  touch-action: none;
+  -ms-touch-action: none;
+}
+
+.touch-pad {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 40;
+  display: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem max(0.85rem, env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+.touch-pad:not([hidden]) {
+  display: flex;
+}
+.touch-pad[hidden] {
+  display: none !important;
+}
+.touch-pad-base {
+  position: relative;
+  width: 7.5rem;
+  height: 7.5rem;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--accent, #c9a227) 45%, transparent);
+  background: color-mix(in srgb, #0a070e 55%, transparent);
+  pointer-events: auto;
+  touch-action: none;
+}
+.touch-pad-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin: -1.2rem 0 0 -1.2rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #c9a227) 70%, white);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #c9a227) 35%, transparent);
+  pointer-events: none;
+  transition: background 0.12s ease;
+}
+.touch-pad-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  pointer-events: auto;
+}
+.touch-pad-actions button {
+  min-width: 4.25rem;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--accent, #c9a227) 50%, transparent);
+  background: color-mix(in srgb, #0a070e 70%, transparent);
+  color: var(--accent, #c9a227);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  touch-action: manipulation;
+}
+.touch-pad-actions button:active,
+.touch-pad-actions button.is-held {
+  background: color-mix(in srgb, var(--accent, #c9a227) 28%, #0a070e);
 }
 
 .arena-hud {
@@ -1041,6 +1105,13 @@ body.embedded #bevy-canvas {
   min-height: 12rem !important;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   border-radius: 0.5rem;
+  touch-action: none;
+}
+
+html.embedded .touch-pad,
+body.embedded .touch-pad {
+  /* Always available in Lab embed on coarse pointers; CSS @media hides fine pointers. */
+  z-index: 45;
 }
 
 @media (max-width: 900px) {

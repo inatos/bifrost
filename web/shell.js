@@ -2247,6 +2247,7 @@ document.addEventListener("DOMContentLoaded", () => {
   detectEmbedded();
   focusPlaySurface();
   bindButtonPressFeedback();
+  bindTouchPad();
   void reclaimStaleOnlineSession();
 });
 
@@ -2254,6 +2255,155 @@ window.addEventListener("pagehide", leaveOnlineSessionOnUnload);
 window.addEventListener("beforeunload", leaveOnlineSessionOnUnload);
 
 bindUi();
+
+/** On-screen move stick + jump/spin for coarse pointers (phones in Lab embed). */
+function bindTouchPad() {
+  const root = $("touch-pad");
+  const move = $("touch-pad-move");
+  const knob = $("touch-pad-knob");
+  const jumpBtn = $("touch-jump");
+  const spinBtn = $("touch-spin");
+  if (!root || !move || !knob) return;
+
+  const coarse =
+    window.matchMedia("(pointer: coarse)").matches ||
+    window.matchMedia("(hover: none)").matches ||
+    navigator.maxTouchPoints > 0;
+  if (!coarse && !isEmbedded()) {
+    root.hidden = true;
+    root.setAttribute("aria-hidden", "true");
+    return;
+  }
+  root.hidden = false;
+  root.setAttribute("aria-hidden", "false");
+
+  const pad = () => {
+    window.__bifrostPad = window.__bifrostPad || {
+      lx: 0,
+      ly: 0,
+      rx: 0,
+      ry: 0,
+      south: false,
+      west: false,
+      spin: false,
+      east: false,
+    };
+    return window.__bifrostPad;
+  };
+
+  let activeId = null;
+  const radius = () => Math.max(28, move.clientWidth * 0.42);
+
+  const setKnob = (nx, ny) => {
+    const r = radius();
+    knob.style.transform = `translate(${nx * r}px, ${ny * r}px)`;
+  };
+
+  const resetMove = () => {
+    activeId = null;
+    const p = pad();
+    p.lx = 0;
+    p.ly = 0;
+    setKnob(0, 0);
+  };
+
+  const onMove = (clientX, clientY) => {
+    const rect = move.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = (clientX - cx) / radius();
+    let dy = (clientY - cy) / radius();
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) {
+      dx /= mag;
+      dy /= mag;
+    }
+    const p = pad();
+    p.lx = dx;
+    // Screen Y down → stick Y up for game (embed pad uses y- = up).
+    p.ly = -dy;
+    setKnob(dx, dy);
+  };
+
+  move.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (activeId != null) return;
+      activeId = e.pointerId;
+      try {
+        move.setPointerCapture(e.pointerId);
+      } catch (_) {}
+      focusPlaySurface();
+      onMove(e.clientX, e.clientY);
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+  move.addEventListener(
+    "pointermove",
+    (e) => {
+      if (e.pointerId !== activeId) return;
+      onMove(e.clientX, e.clientY);
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+  const endMove = (e) => {
+    if (e.pointerId !== activeId) return;
+    resetMove();
+  };
+  move.addEventListener("pointerup", endMove);
+  move.addEventListener("pointercancel", endMove);
+  move.addEventListener("lostpointercapture", () => {
+    if (activeId != null) resetMove();
+  });
+
+  const holdButton = (btn, flag) => {
+    if (!btn) return;
+    const set = (on) => {
+      const p = pad();
+      p[flag] = on;
+      if (flag === "west") p.spin = on;
+      if (flag === "south") {
+        window.__bifrostKeyJump = on;
+        window.__bifrostKeys = window.__bifrostKeys || {};
+        if (on) window.__bifrostKeys.Space = true;
+        else delete window.__bifrostKeys.Space;
+      }
+      btn.classList.toggle("is-held", on);
+    };
+    btn.addEventListener(
+      "pointerdown",
+      (e) => {
+        try {
+          btn.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        focusPlaySurface();
+        set(true);
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+    const clear = () => set(false);
+    btn.addEventListener("pointerup", clear);
+    btn.addEventListener("pointercancel", clear);
+    btn.addEventListener("lostpointercapture", clear);
+  };
+  holdButton(jumpBtn, "south");
+  holdButton(spinBtn, "west");
+
+  // Also chase paddle from direct canvas touch (Bevy cursor + pad fallback).
+  const canvas = $("bevy-canvas");
+  if (canvas) {
+    canvas.addEventListener(
+      "touchstart",
+      () => {
+        focusPlaySurface();
+      },
+      { passive: true }
+    );
+  }
+}
 
 /** Press ripple on buttons (cyan/gold aurora). */
 function spawnBifrostRipple(clientX, clientY) {
@@ -2311,4 +2461,5 @@ function bindButtonPressFeedback() {
 
 if (document.readyState !== "loading") {
   bindButtonPressFeedback();
+  bindTouchPad();
 }

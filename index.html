@@ -75,6 +75,15 @@
     <main class="stage">
       <div class="arena-wrap">
         <canvas id="bevy-canvas" tabindex="0" aria-label="Bifrost game canvas"></canvas>
+        <div id="touch-pad" class="touch-pad" hidden aria-hidden="true">
+          <div class="touch-pad-base" id="touch-pad-move" data-press-skip aria-label="Move paddle">
+            <span class="touch-pad-knob" id="touch-pad-knob" aria-hidden="true"></span>
+          </div>
+          <div class="touch-pad-actions" data-press-skip>
+            <button type="button" id="touch-jump" data-press-skip aria-label="Jump">Jump</button>
+            <button type="button" id="touch-spin" data-press-skip aria-label="Spin">Spin</button>
+          </div>
+        </div>
         <div id="pre-match" class="pre-match hidden" aria-live="polite">
           <h2>Bifrost</h2>
           <p class="pre-match-hint">Ready up to start a match</p>
