@@ -1,10 +1,16 @@
 # Bifrost production stack.
-
-# Required in deploy/.env (see .env.example):
-#   BIFROST_HOST, PUBLIC_ORIGIN, PUBLIC_WS_ORIGIN, ACME_EMAIL
-# For cross-NAT / lab-iframe play (required for Ready Up across homes):
+#
+# Shared Arathyll VPS: put this in deploy/.env (see .env.example):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml
+# so web/signal always join arathyll_edge as bifrost_web / bifrost_signal.
+# Plain `docker compose up` without edge.yml → Caddy 502 (lookup bifrost_web).
+#
+# Required in deploy/.env:
+#   BIFROST_HOST, PUBLIC_ORIGIN, PUBLIC_WS_ORIGIN
+# For cross-NAT / lab-iframe play:
 #   TURN_SECRET, TURN_URLS, EXTERNAL_IP
-#   then: docker compose --profile turn -f docker-compose.yml -f docker-compose.edge.yml up -d
+#   then: docker compose --profile turn up -d
+# Verify: ./verify-edge.sh
 
 services:
   signal:

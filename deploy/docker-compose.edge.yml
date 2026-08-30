@@ -1,9 +1,13 @@
 # Edge mode: Bifrost behind Arathyll's single Caddy (shared network arathyll_edge).
-# Usage on the VPS:
-#   docker network create arathyll_edge  # if release stack not up yet
-#   cd /usr/deploy/bifrost/deploy
-#   cp -n .env.example .env   # PUBLIC_ORIGIN=https://bifrost.arathyll.com …
+#
+# On the shared Arathyll VPS, set in deploy/.env (see .env.example):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml
+# so plain `docker compose up -d` always attaches web as bifrost_web.
+# Without that, Caddy returns 502: lookup bifrost_web failed.
+#
+# Manual equivalent:
 #   docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+#   ./verify-edge.sh
 #
 # Do NOT enable profile bifrost-own-caddy on a box that already binds :80/:443.
 
