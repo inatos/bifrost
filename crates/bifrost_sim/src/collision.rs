@@ -1,13 +1,13 @@
-use crate::fixed::{isqrt, Vec2, FP_SCALE};
+use crate::ConfirmedEvent;
+use crate::fixed::{FP_SCALE, Vec2, isqrt};
 use crate::paddle_geom::{bounce_ball_off_paddle, circle_hits_paddle, paddle_airborne};
 use crate::rules::{
-    WorldState, ARENA_H, ARENA_W, BALL_MAX_SPEED, BALL_R, BALL_SPEED, BALL_HIT_KNOCK_DEN,
-    BALL_HIT_KNOCK_NUM, BRICK_COUNT, BRICK_H, BRICK_W, CORNER_R, CORNER_TANGENT_KICK,
-    CORNER_WALL_KNOCK, GOAL_DEPTH, OWNER_NEUTRAL, PADDLE_KNOCK_MAX, WALL, WALL_KNOCK,
-    WILD_BALL_KNOCK, WILD_BRICK_HALF,
+    ARENA_H, ARENA_W, BALL_HIT_KNOCK_DEN, BALL_HIT_KNOCK_NUM, BALL_MAX_SPEED, BALL_R, BALL_SPEED,
+    BRICK_COUNT, BRICK_H, BRICK_W, CORNER_R, CORNER_TANGENT_KICK, CORNER_WALL_KNOCK, GOAL_DEPTH,
+    OWNER_NEUTRAL, PADDLE_KNOCK_MAX, WALL, WALL_KNOCK, WILD_BALL_KNOCK, WILD_BRICK_HALF,
+    WorldState,
 };
 use crate::wild_bricks::circle_hits_wild;
-use crate::ConfirmedEvent;
 
 /// Substeps scale with ball speed so 7×+ play doesn't tunnel through bricks.
 const BALL_SUBSTEPS: i32 = 8;
@@ -69,10 +69,10 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
                 let ky = ((impact * BALL_HIT_KNOCK_NUM / (BALL_HIT_KNOCK_DEN * 2))
                     * if player == 0 { 1 } else { -1 })
                 .clamp(-PADDLE_KNOCK_MAX, PADDLE_KNOCK_MAX);
-                state.paddles[player].vx = (state.paddles[player].vx + kx)
-                    .clamp(-PADDLE_KNOCK_MAX, PADDLE_KNOCK_MAX);
-                state.paddles[player].vy = (state.paddles[player].vy + ky)
-                    .clamp(-PADDLE_KNOCK_MAX, PADDLE_KNOCK_MAX);
+                state.paddles[player].vx =
+                    (state.paddles[player].vx + kx).clamp(-PADDLE_KNOCK_MAX, PADDLE_KNOCK_MAX);
+                state.paddles[player].vy =
+                    (state.paddles[player].vy + ky).clamp(-PADDLE_KNOCK_MAX, PADDLE_KNOCK_MAX);
                 // Ball keeps a satisfying rebound boost from paddle motion.
                 vel.x += pvx / 3;
                 vel.y += pvy / 4;
@@ -94,7 +94,9 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
                 let tier = state.brick_max_hp[index].max(1) as i32;
                 let impact = isqrt(vel.len_sq()).max(BALL_SPEED as i64) as i32;
                 let (nx, ny) = brick_normal_for_bounce(pos, vel, center, BRICK_W, BRICK_H);
-                reflect_ball_from_brick(&mut pos, &mut vel, nx, ny, center, BRICK_W, BRICK_H, BALL_SPEED);
+                reflect_ball_from_brick(
+                    &mut pos, &mut vel, nx, ny, center, BRICK_W, BRICK_H, BALL_SPEED,
+                );
                 // Heavier tiers throw the ball harder (momentum resolve).
                 let kick = (impact * tier) / (4 + tier);
                 vel.x += nx * kick;
@@ -279,11 +281,7 @@ fn brick_normal_for_bounce(pos: Vec2, vel: Vec2, center: Vec2, w: i32, h: i32) -
     };
     if use_x {
         let nx = if dx != 0 {
-            if dx > 0 {
-                1
-            } else {
-                -1
-            }
+            if dx > 0 { 1 } else { -1 }
         } else if vel.x > 0 {
             -1
         } else {
@@ -292,11 +290,7 @@ fn brick_normal_for_bounce(pos: Vec2, vel: Vec2, center: Vec2, w: i32, h: i32) -
         (nx, 0)
     } else {
         let ny = if dy != 0 {
-            if dy > 0 {
-                1
-            } else {
-                -1
-            }
+            if dy > 0 { 1 } else { -1 }
         } else if vel.y > 0 {
             -1
         } else {
@@ -332,13 +326,21 @@ fn bounce_off_wall(vel: &mut Vec2, nx: i32, ny: i32, min_speed: i32) {
     vel.x += nx * WALL_KNOCK;
     vel.y += ny * WALL_KNOCK;
     if nx != 0 {
-        let away = if nx < 0 { min_speed / 2 } else { -min_speed / 2 };
+        let away = if nx < 0 {
+            min_speed / 2
+        } else {
+            -min_speed / 2
+        };
         if vel.x * nx > 0 {
             vel.x = away;
         }
     }
     if ny != 0 {
-        let away = if ny < 0 { min_speed / 2 } else { -min_speed / 2 };
+        let away = if ny < 0 {
+            min_speed / 2
+        } else {
+            -min_speed / 2
+        };
         if vel.y * ny > 0 {
             vel.y = away;
         }
@@ -398,6 +400,7 @@ pub fn check_goal_crossing(state: &WorldState, prev_y: i32) -> Option<u8> {
     None
 }
 
+#[allow(dead_code)] // retained for arena variants / future goal modes
 pub fn check_goal(state: &WorldState) -> Option<u8> {
     let top_goal = ARENA_H / 2 - GOAL_DEPTH;
     let bottom_goal = -ARENA_H / 2 + GOAL_DEPTH;

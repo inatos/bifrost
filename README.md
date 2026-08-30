@@ -94,7 +94,7 @@ cargo clippy -p bifrost_sim -p bifrost_signal -- -D warnings
 
 ## Deploy
 
-See [docs/deployment.md](docs/deployment.md). Production is a small Compose stack (`signal` + `web` + Caddy); set `BIFROST_HOST` / `PUBLIC_ORIGIN` in `deploy/.env`.
+See [docs/deployment.md](docs/deployment.md). Prefer **edge mode** on a shared VPS (`docker-compose.edge.yml` behind the site Caddy); set `PUBLIC_ORIGIN` in `deploy/.env`.
 
 ## Docs
 

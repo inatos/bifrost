@@ -2,7 +2,9 @@
 
 pub const FP_SCALE: i32 = 1000;
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct Vec2 {
     pub x: i32,
     pub y: i32,

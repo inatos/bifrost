@@ -14,13 +14,18 @@ use crate::state::{AppState, LaunchConfig, SimSnapshot};
 #[derive(Clone)]
 enum PendingSession {
     Bot,
-    Online { room: String, ticket: String },
+    Online {
+        room: String,
+        ticket: String,
+        turn_urls: Vec<String>,
+        turn_username: String,
+        turn_credential: String,
+    },
     /// Tear down GGRS/Matchbox and return to idle bot board.
     Leave,
 }
 
-static PENDING: LazyLock<Mutex<Option<PendingSession>>> =
-    LazyLock::new(|| Mutex::new(None));
+static PENDING: LazyLock<Mutex<Option<PendingSession>>> = LazyLock::new(|| Mutex::new(None));
 
 /// When true, bounce Menu → Lobby next frame so Matchbox OnEnter re-fires.
 static DEFERRED_LOBBY: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
@@ -36,9 +41,20 @@ mod wasm_exports {
     }
 
     #[wasm_bindgen]
-    pub fn bifrost_connect(room: String, ticket: String) {
-        *PENDING.lock().expect("session lock") =
-            Some(PendingSession::Online { room, ticket });
+    pub fn bifrost_connect(
+        room: String,
+        ticket: String,
+        turn_urls: Option<Vec<String>>,
+        turn_username: Option<String>,
+        turn_credential: Option<String>,
+    ) {
+        *PENDING.lock().expect("session lock") = Some(PendingSession::Online {
+            room,
+            ticket,
+            turn_urls: turn_urls.unwrap_or_default(),
+            turn_username: turn_username.unwrap_or_default(),
+            turn_credential: turn_credential.unwrap_or_default(),
+        });
     }
 
     #[wasm_bindgen]
@@ -81,6 +97,9 @@ fn apply_pending_session(
             *DEFERRED_LOBBY.lock().expect("lobby lock") = false;
             config.args.room = None;
             config.args.ticket = None;
+            config.args.turn_urls.clear();
+            config.args.turn_username = None;
+            config.args.turn_credential = None;
             config.args.bot = true;
             reset_bot_world(&mut sim, &mut interp, &mut bot);
             if state.get() == &AppState::InGame {
@@ -93,15 +112,25 @@ fn apply_pending_session(
             *DEFERRED_LOBBY.lock().expect("lobby lock") = false;
             config.args.room = None;
             config.args.ticket = None;
-            config.args.bot = true;
+            config.args.turn_urls.clear();
+            config.args.turn_username = None;
+            config.args.turn_credential = None;
+            config.args.bot = false;
             // Drop online session resources so RollbackWorld cannot overwrite Readying.
             commands.remove_resource::<bevy_ggrs::Session<crate::online_mode::BifrostConfig>>();
             commands.remove_resource::<bevy_matchbox::prelude::MatchboxSocket>();
             commands.remove_resource::<crate::online_mode::RollbackWorld>();
-            reset_bot_world(&mut sim, &mut interp, &mut bot);
-            next.set(AppState::InGame);
+            // Menu — do not spawn a bot match after an online drop (that looked like
+            // "both loaded into bot matches" after a flaky TURN/GGRS disconnect).
+            next.set(AppState::Menu);
         }
-        Some(PendingSession::Online { room, ticket }) => {
+        Some(PendingSession::Online {
+            room,
+            ticket,
+            turn_urls,
+            turn_username,
+            turn_credential,
+        }) => {
             // Page-origin Matchbox URL — never leave the clap default :3536.
             #[cfg(target_arch = "wasm32")]
             {
@@ -109,6 +138,17 @@ fn apply_pending_session(
             }
             config.args.room = Some(room);
             config.args.ticket = Some(ticket);
+            config.args.turn_urls = turn_urls;
+            config.args.turn_username = if turn_username.is_empty() {
+                None
+            } else {
+                Some(turn_username)
+            };
+            config.args.turn_credential = if turn_credential.is_empty() {
+                None
+            } else {
+                Some(turn_credential)
+            };
             config.args.bot = false;
             if state.get() == &AppState::Lobby {
                 // Force OnEnter(Lobby) to rebuild the Matchbox socket.

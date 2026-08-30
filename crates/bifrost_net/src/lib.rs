@@ -1,6 +1,6 @@
 //! Rollback diagnostics and session configuration helpers.
 
-use bifrost_sim::{checksum, FrameInput, WorldState};
+use bifrost_sim::{FrameInput, WorldState, checksum};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_INPUT_DELAY: usize = 2;

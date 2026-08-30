@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bifrost_sim::ConfirmedEvent;
 
-use crate::render::{ball_owner_color, P1_COLOR, P2_COLOR};
+use crate::render::{P1_COLOR, P2_COLOR, ball_owner_color};
 use crate::state::{AppState, SimSnapshot};
 
 #[derive(Resource, Default)]
@@ -71,14 +71,26 @@ fn drain_confirmed_events(
                 juice.shake = juice.shake.max(0.55);
                 juice.flash = juice.flash.max(0.35);
                 juice.hitstop = juice.hitstop.max(0.04);
-                burst(&mut commands, origin, Color::srgb(0.72, 0.42, 0.95), 14, 220.0);
+                burst(
+                    &mut commands,
+                    origin,
+                    Color::srgb(0.72, 0.42, 0.95),
+                    14,
+                    220.0,
+                );
                 try_play_sfx(&mut juice, "break", 0.55);
                 try_haptic("break");
             }
             ConfirmedEvent::BrickDamage { .. } => {
                 juice.shake = juice.shake.max(0.22);
                 juice.flash = juice.flash.max(0.12);
-                burst(&mut commands, origin, Color::srgb(0.55, 0.35, 0.78), 6, 140.0);
+                burst(
+                    &mut commands,
+                    origin,
+                    Color::srgb(0.55, 0.35, 0.78),
+                    6,
+                    140.0,
+                );
                 try_play_sfx(&mut juice, "chip", 0.35);
                 try_haptic("chip");
             }
@@ -89,7 +101,13 @@ fn drain_confirmed_events(
             ConfirmedEvent::WildBrickBreak { .. } => {
                 juice.shake = juice.shake.max(0.4);
                 juice.flash = juice.flash.max(0.25);
-                burst(&mut commands, origin, Color::srgb(0.9, 0.35, 0.85), 10, 200.0);
+                burst(
+                    &mut commands,
+                    origin,
+                    Color::srgb(0.9, 0.35, 0.85),
+                    10,
+                    200.0,
+                );
                 try_play_sfx(&mut juice, "wild", 0.45);
                 try_haptic("break");
             }
@@ -159,7 +177,13 @@ fn drain_confirmed_events(
             ConfirmedEvent::WildBallBurst { .. } => {
                 juice.shake = juice.shake.max(0.55);
                 juice.flash = juice.flash.max(0.45);
-                burst(&mut commands, origin, Color::srgb(0.95, 0.45, 0.85), 18, 280.0);
+                burst(
+                    &mut commands,
+                    origin,
+                    Color::srgb(0.95, 0.45, 0.85),
+                    18,
+                    280.0,
+                );
                 try_play_sfx(&mut juice, "burst", 0.55);
                 try_haptic("burst");
             }
@@ -179,11 +203,7 @@ fn drain_confirmed_events(
             }
             ConfirmedEvent::GroundPound { player, x, y } => {
                 let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
-                let color = if player == 0 {
-                    P1_COLOR
-                } else {
-                    P2_COLOR
-                };
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
                 juice.shake = juice.shake.max(1.05);
                 juice.flash = juice.flash.max(0.7);
                 juice.hitstop = juice.hitstop.max(0.09);
@@ -494,7 +514,11 @@ fn sword_beam_burst(
     }
 }
 
-fn spawn_angle_wave_trail(mut commands: Commands, mut juice: ResMut<JuiceState>, sim: Res<SimSnapshot>) {
+fn spawn_angle_wave_trail(
+    mut commands: Commands,
+    mut juice: ResMut<JuiceState>,
+    sim: Res<SimSnapshot>,
+) {
     if sim.world.angle_wave_t == 0 {
         return;
     }
@@ -593,11 +617,19 @@ fn tick_particles(
     time: Res<Time>,
     mut particles: Query<
         (Entity, &mut Transform, &mut Sprite, &mut JuiceParticle),
-        (Without<BallTrail>, Without<Camera2d>, Without<crate::render::ArenaPart>),
+        (
+            Without<BallTrail>,
+            Without<Camera2d>,
+            Without<crate::render::ArenaPart>,
+        ),
     >,
     mut trails: Query<
         (Entity, &mut Transform, &mut Sprite, &mut BallTrail),
-        (Without<JuiceParticle>, Without<Camera2d>, Without<crate::render::ArenaPart>),
+        (
+            Without<JuiceParticle>,
+            Without<Camera2d>,
+            Without<crate::render::ArenaPart>,
+        ),
     >,
 ) {
     let dt = time.delta_secs();

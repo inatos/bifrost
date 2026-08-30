@@ -1,9 +1,9 @@
 use bevy::input::gamepad::Gamepad;
 use bevy::prelude::*;
-use bifrost_sim::{advance_bot, new_match, step, BotConfig, BotState, MatchPhase};
+use bifrost_sim::{BotConfig, BotState, MatchPhase, advance_bot, new_match, step};
 
-use crate::interp::InterpState;
 use crate::input_focus::InputFocus;
+use crate::interp::InterpState;
 use crate::local_input::local_input_mask;
 use crate::session_boot;
 use crate::state::{AppState, LaunchConfig, SimSnapshot};
@@ -123,14 +123,7 @@ fn bot_tick(
         };
         anchor.valid = true;
         let p0 = local_input_mask(
-            &keys,
-            &mouse,
-            &gamepads,
-            &windows,
-            &camera_q,
-            anchor.x,
-            anchor.y,
-            &mut focus,
+            &keys, &mouse, &gamepads, &windows, &camera_q, anchor.x, anchor.y, &mut focus,
         );
         let cfg = bot.cfg;
         let p1 = advance_bot(&sim.world, &mut bot.bot, 1, cfg);

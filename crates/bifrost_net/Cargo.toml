@@ -13,3 +13,6 @@ bifrost_sim = { path = "../bifrost_sim" }
 bevy_ggrs = { workspace = true }
 bevy_matchbox = { workspace = true }
 serde = { workspace = true }
+
+[lints]
+workspace = true

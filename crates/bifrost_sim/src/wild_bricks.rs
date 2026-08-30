@@ -1,10 +1,10 @@
 //! Erratic small wild bricks — deterministic spawn + movement.
 //! Paddle shoves apply lasting velocity; wander + mild ball gravity when coasting.
 
-use crate::fixed::Vec2;
 use crate::fixed::FP_SCALE;
+use crate::fixed::Vec2;
 use crate::rules::{
-    WorldState, ARENA_H, ARENA_W, WILD_BRICK_HALF, WILD_SPAWN_COOLDOWN, WALL, WALL_KNOCK,
+    ARENA_H, ARENA_W, WALL, WALL_KNOCK, WILD_BRICK_HALF, WILD_SPAWN_COOLDOWN, WorldState,
 };
 
 const COAST_NUM: i32 = 96;

@@ -23,6 +23,8 @@ let preMatchOpen = false;
 let rematchP0 = false;
 /** User asked to start before Trunk finished WASM init. */
 let pendingBotStart = false;
+/** Join/Create succeeded before WASM ready — connect once modules load. */
+let pendingOnlineConnect = null;
 /** Quit pressed — suppress match_over results re-latching until a new match starts. */
 let userQuit = false;
 /** Suppress results panel while rematch countdown / new match boots. */
@@ -47,6 +49,39 @@ let lastPadEast = false;
 let roomPollTimer = 0;
 
 const PLAYER_NAME_KEY = "bifrost-player-name";
+
+function typingInFormField(target) {
+  if (!target || !(target instanceof Element)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return !!target.closest?.("input, textarea, select, [contenteditable='true']");
+}
+
+/** Room code currently in the Join/Create field (if any). */
+function roomCodeFromFields() {
+  return String($("embed-room-code")?.value || roomInput?.value || "")
+    .trim()
+    .toUpperCase();
+}
+
+/** Prefer Join when a code is present — never start a bot mid-join by accident. */
+function startFromPreMatchConfirm() {
+  if (sessionState.ticket) {
+    setStatus("Online lobby is active — wait for your opponent, or Quit first.");
+    return false;
+  }
+  const code = roomCodeFromFields();
+  if (code || playMode === "join") {
+    if (!code) {
+      setStatus("Enter a room code, then Join / Launch.");
+      $("embed-room-code")?.focus();
+      return false;
+    }
+    void joinRoomWithCode(code);
+    return true;
+  }
+  return requestBotStart();
+}
 
 function isEmbedded() {
   return (
@@ -410,6 +445,7 @@ function dismissOnlineSession(promptMsg) {
   matchLatched = false;
   rematchP0 = false;
   pendingBotStart = false;
+  pendingOnlineConnect = null;
   window.__bifrostReadyWanted = false;
   stopRoomPoll();
   hideLobbyWait();
@@ -606,7 +642,7 @@ function cycleUiFocus(dir) {
 function confirmUiFocus() {
   if (preMatchOpen) {
     if (uiFocus === "quit") quitToMenu();
-    else requestBotStart();
+    else startFromPreMatchConfirm();
     return;
   }
   if (matchLatched) {
@@ -715,12 +751,17 @@ function onWasmReady() {
     focusPlaySurface();
     if (waitingOnRoom) {
       /* room link — stay in lobby until join */
+    } else if (pendingOnlineConnect) {
+      const pending = pendingOnlineConnect;
+      pendingOnlineConnect = null;
+      pendingBotStart = false;
+      void connectOnline(pending.room, pending.ticket, pending.role);
     } else if (pendingBotStart) {
       pendingBotStart = false;
-      startBotMatch();
+      if (!sessionState.ticket) startBotMatch();
     } else if (isEmbedded()) {
-      if (!preMatchOpen) showPreMatch();
-      else setStatus("Ready up to start a bot match.");
+      if (!preMatchOpen && !lobbyWaitOpen) showPreMatch();
+      else if (!lobbyWaitOpen) setStatus("Ready up to start a bot match.");
     } else {
       startBotMatch();
     }
@@ -830,6 +871,7 @@ async function returnToMatchMenu() {
   matchLatched = false;
   rematchP0 = false;
   pendingBotStart = false;
+  pendingOnlineConnect = null;
   window.__bifrostReadyWanted = false;
   stopRoomPoll();
   hideLobbyWait();
@@ -878,6 +920,7 @@ async function quitToMenu() {
   matchLatched = false;
   rematchP0 = false;
   pendingBotStart = false;
+  pendingOnlineConnect = null;
   window.__bifrostReadyWanted = false;
   stopRoomPoll();
   hideLobbyWait();
@@ -1222,6 +1265,7 @@ function whenWasmReady() {
     const err = e.detail?.err ?? e.detail?.error;
     const msg = err?.message ?? String(err ?? "unknown error");
     pendingBotStart = false;
+    pendingOnlineConnect = null;
     setStatus(`Wasm failed to load: ${msg}`);
     console.error("[bifrost] wasm init failed", err);
   };
@@ -1279,7 +1323,7 @@ function requestBotStart() {
 }
 
 function beginBotMatchNow() {
-  if (sessionState.ticket) {
+  if (sessionState.ticket || pendingOnlineConnect) {
     setStatus("Online lobby is active — Quit first, or wait for your opponent.");
     return false;
   }
@@ -1323,7 +1367,7 @@ function beginBotMatchNow() {
 }
 
 function startBotMatch() {
-  if (sessionState.ticket) {
+  if (sessionState.ticket || pendingOnlineConnect) {
     setStatus("Online lobby is active — Quit first before starting a bot match.");
     return false;
   }
@@ -1338,11 +1382,41 @@ function startBotMatch() {
   return true;
 }
 
-function connectOnline(room, ticket, role = "host") {
-  if (!wasmReady) {
-    setStatus("Game still loading…");
-    return false;
+async function fetchTurnCredentials() {
+  try {
+    const res = await fetch("/api/turn");
+    if (!res.ok) {
+      console.warn("[bifrost] TURN unavailable", res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn("[bifrost] TURN fetch failed", e);
+    return null;
   }
+}
+
+async function connectOnline(room, ticket, role = "host") {
+  // Cancel any queued bot start — joining online must win.
+  pendingBotStart = false;
+  if (!wasmReady) {
+    pendingOnlineConnect = { room, ticket, role };
+    sessionState.room = room;
+    sessionState.ticket = ticket;
+    lobbyRole = role;
+    persistOnlineSession();
+    setPlayMode(role === "guest" ? "join" : "create");
+    syncRoomField(room);
+    showLobbyWait(role, room);
+    setStatus(
+      role === "guest"
+        ? `Joined ${room} — loading game, then connecting…`
+        : `Room ${room} — loading game, then waiting…`
+    );
+    updateLaunchEnabled();
+    return true;
+  }
+  pendingOnlineConnect = null;
   userQuit = false;
   matchLatched = false;
   rematchP0 = false;
@@ -1362,8 +1436,15 @@ function connectOnline(room, ticket, role = "host") {
   const embedRoom = $("embed-room-code");
   if (embedRoom) embedRoom.value = room;
   syncPlayModeUi();
+  const turn = await fetchTurnCredentials();
+  const turnUrls = Array.isArray(turn?.urls) ? turn.urls : [];
+  const turnUser = turn?.username || "";
+  const turnCred = turn?.credential || "";
+  if (turnUrls.length) {
+    setStatus(`Room ${room} — negotiating relay…`);
+  }
   try {
-    wasmApi().bifrost_connect(room, ticket);
+    wasmApi().bifrost_connect(room, ticket, turnUrls, turnUser, turnCred);
   } catch (e) {
     console.error("[bifrost] bifrost_connect failed", e);
     setStatus(`Could not connect: ${e.message}`);
@@ -1414,7 +1495,7 @@ async function joinRoomWithCode(rawCode) {
     });
     syncRoomField(code);
     if (data.host_name) opponentName = String(data.host_name).slice(0, 7) || "P2";
-    connectOnline(code, data.guest_ticket, "guest");
+    await connectOnline(code, data.guest_ticket, "guest");
     return true;
   } catch (err) {
     setStatus(`Join failed: ${err.message}`);
@@ -1443,7 +1524,7 @@ function bindEmbedUi() {
   if (preReady) {
     preReady.addEventListener("click", (e) => {
       e.stopPropagation();
-      requestBotStart();
+      startFromPreMatchConfirm();
     });
   }
   if (preQuit) {
@@ -1517,7 +1598,7 @@ function bindEmbedUi() {
           display_name: getPlayerName(),
         });
         syncRoomField(data.room_code);
-        connectOnline(data.room_code, data.host_ticket, "host");
+        await connectOnline(data.room_code, data.host_ticket, "host");
       } catch (err) {
         setStatus(`Could not create room: ${err.message}`);
       }
@@ -1564,6 +1645,26 @@ function bindEmbedUi() {
       if (playMode !== "create" && playMode !== "bot") setPlayMode("join");
       updateLaunchEnabled();
       syncPlayModeUi();
+    });
+    embedRoom.addEventListener("click", (e) => e.stopPropagation());
+    // Keep Backspace/arrows in the field — do not bubble to quit/nav handlers.
+    embedRoom.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.code === "Enter") {
+        e.preventDefault();
+        const code = String(embedRoom.value || "").trim().toUpperCase();
+        void joinRoomWithCode(code);
+      }
+    });
+  }
+  if (roomInput) {
+    roomInput.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.code === "Enter") {
+        e.preventDefault();
+        const code = String(roomInput.value || "").trim().toUpperCase();
+        void joinRoomWithCode(code);
+      }
     });
   }
   const lobbyCopy = $("btn-lobby-copy");
@@ -1683,7 +1784,7 @@ function bindUi() {
         protocol_version: 1,
         display_name: getPlayerName(),
       });
-      connectOnline(data.room_code, data.host_ticket, "host");
+      await connectOnline(data.room_code, data.host_ticket, "host");
     } catch (e) {
       showLobby();
       setStatus(`Could not create room: ${e.message}`);
@@ -1761,6 +1862,8 @@ function bindUi() {
   }
 
   window.addEventListener("keydown", (e) => {
+    // Typing a room code / name must never quit or navigate.
+    if (typingInFormField(e.target)) return;
     if (readyUpOpen() && (e.code === "Space" || e.code === "Enter")) {
       e.preventDefault();
       pulseReadyJump();
@@ -1862,6 +1965,8 @@ window.addEventListener("message", (ev) => {
   if (ev?.data?.type === "bifrost-key") {
     const code = String(ev.data.code || "");
     const down = !!ev.data.down;
+    // Parent forwards gameplay keys only; still ignore when a Bifrost field is focused.
+    if (typingInFormField(document.activeElement)) return;
     if (down && readyUpOpen() && (code === "Space" || code === "Enter")) {
       pulseReadyJump();
       applyEmbedKey(code, down);

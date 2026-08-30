@@ -1,7 +1,7 @@
 //! Rollback diagnostics shared by online play.
 
 use bevy::prelude::*;
-use bifrost_net::{RollbackDiagnostics, DEFAULT_INPUT_DELAY};
+use bifrost_net::{DEFAULT_INPUT_DELAY, RollbackDiagnostics};
 
 #[derive(Resource)]
 pub struct NetSession {

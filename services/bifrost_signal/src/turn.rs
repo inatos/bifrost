@@ -4,11 +4,7 @@ use sha1::Sha1;
 
 type HmacSha1 = Hmac<Sha1>;
 
-pub fn mint_turn_credentials(
-    secret: &str,
-    username: &str,
-    ttl_secs: u32,
-) -> (String, String) {
+pub fn mint_turn_credentials(secret: &str, username: &str, ttl_secs: u32) -> (String, String) {
     let expiry = chrono::Utc::now().timestamp() as u64 + ttl_secs as u64;
     let user = format!("{expiry}:{username}");
     let mut mac = HmacSha1::new_from_slice(secret.as_bytes()).expect("hmac");

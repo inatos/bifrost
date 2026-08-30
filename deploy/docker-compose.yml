@@ -2,6 +2,9 @@
 
 # Required in deploy/.env (see .env.example):
 #   BIFROST_HOST, PUBLIC_ORIGIN, PUBLIC_WS_ORIGIN, ACME_EMAIL
+# For cross-NAT / lab-iframe play (required for Ready Up across homes):
+#   TURN_SECRET, TURN_URLS, EXTERNAL_IP
+#   then: docker compose --profile turn -f docker-compose.yml -f docker-compose.edge.yml up -d
 
 services:
   signal:
@@ -28,6 +31,36 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # Coturn REST relay (use-auth-secret). Host networking so relay ports map cleanly.
+  coturn:
+    profiles: ["turn"]
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in deploy/.env}
+      - --realm=${BIFROST_HOST:-bifrost.arathyll.com}
+      - --server-name=${BIFROST_HOST:-bifrost.arathyll.com}
+      - --external-ip=${EXTERNAL_IP:?set EXTERNAL_IP (public IPv4) in deploy/.env}
+      - --listening-ip=0.0.0.0
+      - --no-multicast-peers
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      # Allow RFC1918 peer permissions so same-LAN / hairpin TURN CREATE_PERMISSION works.
+      - --allowed-peer-ip=10.0.0.0-10.255.255.255
+      - --allowed-peer-ip=172.16.0.0-172.31.255.255
+      - --allowed-peer-ip=192.168.0.0-192.168.255.255
+      - --allowed-peer-ip=100.64.0.0-100.127.255.255
+      - --verbose
 
   web:
     build:

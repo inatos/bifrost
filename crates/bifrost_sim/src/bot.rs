@@ -1,9 +1,9 @@
-use crate::fixed::{isqrt, Vec2, FP_SCALE};
+use crate::fixed::{FP_SCALE, Vec2, isqrt};
 use crate::input::{INPUT_DOWN, INPUT_JUMP, INPUT_LEFT, INPUT_RIGHT, INPUT_SPIN, INPUT_UP};
 use crate::paddle_geom::paddle_airborne;
 use crate::rules::{
-    MatchPhase, PaddleState, WorldState, ARENA_H, ARENA_W, BALL_R, BALL_SPEED, BRICK_COUNT, BRICK_H,
-    BRICK_W, PADDLE_H, PADDLE_W, WALL, WILD_BRICK_HALF, OWNER_NEUTRAL,
+    ARENA_H, ARENA_W, BALL_R, BALL_SPEED, BRICK_COUNT, BRICK_H, BRICK_W, MatchPhase, OWNER_NEUTRAL,
+    PADDLE_H, PADDLE_W, PaddleState, WALL, WILD_BRICK_HALF, WorldState,
 };
 
 /// Frames between bot jumps — stops hop spam.
@@ -42,12 +42,7 @@ pub struct BotState {
 /// Hold still for one second after the ball drops.
 const POST_SERVE_IDLE_FRAMES: u32 = 60;
 
-pub fn choose_input(
-    state: &WorldState,
-    bot: &mut BotState,
-    player: usize,
-    cfg: BotConfig,
-) -> u8 {
+pub fn choose_input(state: &WorldState, bot: &mut BotState, player: usize, cfg: BotConfig) -> u8 {
     if bot.jump_cd > 0 {
         bot.jump_cd -= 1;
     }
@@ -322,11 +317,7 @@ fn predict_intercept(
     } else {
         state.ball.vel.y < 0
     };
-    let own_half = if player == 0 {
-        ball.y > 0
-    } else {
-        ball.y < 0
-    };
+    let own_half = if player == 0 { ball.y > 0 } else { ball.y < 0 };
 
     if state.ball.owner == player as u8 {
         // Own the ball → drive toward the opponent's goal (score first, bricks second).
@@ -346,8 +337,8 @@ fn predict_intercept(
     // CPU hunts the human paddle when the ball is loose and close.
     if player == 1 && state.ball.owner == OWNER_NEUTRAL && aggressiveness > 90 {
         let human = state.paddles[0];
-        let close = (human.x - paddle.x).abs() < PADDLE_W * 4
-            && (human.y - paddle.y).abs() < PADDLE_H * 8;
+        let close =
+            (human.x - paddle.x).abs() < PADDLE_W * 4 && (human.y - paddle.y).abs() < PADDLE_H * 8;
         if close && (state.frame / 45) % 2 == 0 {
             return (human.x + err / 2, human.y);
         }
@@ -388,7 +379,11 @@ fn predict_intercept(
             return (hunt_x, hunt_y);
         }
     }
-    let press = if player == 0 { ARENA_H / 8 } else { -ARENA_H / 8 };
+    let press = if player == 0 {
+        ARENA_H / 8
+    } else {
+        -ARENA_H / 8
+    };
     (keep_off_walls(ball.x / 3 + err), press)
 }
 

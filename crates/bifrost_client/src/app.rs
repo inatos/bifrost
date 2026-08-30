@@ -25,9 +25,7 @@ pub fn run() {
         .init_resource::<InputFocus>()
         .init_resource::<crate::input_focus::MouseAimAnchor>()
         .init_resource::<UiChannel>()
-        .insert_resource(Time::<Fixed>::from_hz(
-            bifrost_sim::TICKS_PER_SECOND as f64,
-        ))
+        .insert_resource(Time::<Fixed>::from_hz(bifrost_sim::TICKS_PER_SECOND as f64))
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
@@ -66,12 +64,7 @@ pub fn run() {
 
 fn setup_camera(mut commands: Commands) {
     let mut projection = OrthographicProjection::default_2d();
-    projection.area = Rect::new(
-        -ARENA_W / 2.0,
-        -ARENA_H / 2.0,
-        ARENA_W / 2.0,
-        ARENA_H / 2.0,
-    );
+    projection.area = Rect::new(-ARENA_W / 2.0, -ARENA_H / 2.0, ARENA_W / 2.0, ARENA_H / 2.0);
     // Zoom out so the board clears Lab chrome (lock banner / footer).
     projection.scaling_mode = ScalingMode::AutoMin {
         min_width: ARENA_W * 1.18,

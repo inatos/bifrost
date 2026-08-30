@@ -1,5 +1,7 @@
 use crate::input::FrameInput;
-use crate::{checksum, new_match, simulate_frames, step, BRICK_COLS, BRICK_COUNT, OWNER_NEUTRAL, FP_SCALE};
+use crate::{
+    BRICK_COLS, BRICK_COUNT, FP_SCALE, OWNER_NEUTRAL, checksum, new_match, simulate_frames, step,
+};
 
 #[test]
 fn identical_inputs_produce_identical_checksums() {
@@ -61,10 +63,11 @@ fn brick_tiers_differ_across_seeds() {
     let a = new_match(1);
     let b = new_match(2);
     assert_ne!(a.brick_max_hp, b.brick_max_hp);
-    assert!(a
-        .brick_max_hp
-        .iter()
-        .all(|h| *h == 0 || (1..=3).contains(h)));
+    assert!(
+        a.brick_max_hp
+            .iter()
+            .all(|h| *h == 0 || (1..=3).contains(h))
+    );
     assert_eq!(a.brick_hp, a.brick_max_hp);
     // Face-off lane (center two columns) stays empty.
     let gap_lo = (BRICK_COLS as usize / 2).saturating_sub(1);
@@ -94,10 +97,11 @@ fn neutral_ball_does_not_damage_bricks() {
     state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
     let out = step(&mut state, FrameInput::default());
     assert_eq!(state.brick_hp[idx], hp_before);
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::BrickBounce { .. })));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::BrickBounce { .. }))
+    );
 }
 
 #[test]
@@ -118,10 +122,11 @@ fn charged_brick_hit_neutralizes_and_damages() {
     let out = step(&mut state, FrameInput::default());
     assert_eq!(state.brick_hp[idx], hp_before - 1);
     assert_eq!(state.ball.owner, OWNER_NEUTRAL);
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::BallNeutralized)));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::BallNeutralized))
+    );
 }
 
 #[test]
@@ -138,7 +143,10 @@ fn ball_bounces_off_brick_from_below() {
     let half_h = crate::rules::BRICK_H / 2;
     // Approach from below like a bottom-player serve.
     state.ball.owner = 1;
-    state.ball.pos = crate::Vec2::new(center.x, center.y - half_h - crate::rules::BALL_R - FP_SCALE);
+    state.ball.pos = crate::Vec2::new(
+        center.x,
+        center.y - half_h - crate::rules::BALL_R - FP_SCALE,
+    );
     state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
     let score_before = state.score[1];
     let _ = step(&mut state, FrameInput::default());
@@ -170,10 +178,11 @@ fn brick_break_awards_score_to_owner() {
     state.ball.vel = crate::Vec2::new(0, crate::rules::BALL_SPEED);
     let before = state.score[0];
     let out = step(&mut state, FrameInput::default());
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::BrickBreak { .. })));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::BrickBreak { .. }))
+    );
     assert_eq!(state.score[0], before + 1);
 }
 
@@ -190,10 +199,11 @@ fn three_breaks_wins_round_early() {
     // Keep some bricks alive so this is not a board-clear win.
     assert!(state.brick_hp.iter().any(|&h| h > 0));
     let out = step(&mut state, FrameInput::default());
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 }))
+    );
     assert_eq!(state.rounds_won[0], 1);
 }
 
@@ -208,10 +218,11 @@ fn timeout_most_breaks_wins_round() {
     state.ball.pos = crate::Vec2::new(0, 0);
     state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
     let out = step(&mut state, FrameInput::default());
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 }))
+    );
     assert_eq!(state.rounds_won[0], 1);
     assert_eq!(state.phase, crate::MatchPhase::Serving);
 }
@@ -227,10 +238,11 @@ fn timeout_equal_breaks_ties_round() {
     state.ball.pos = crate::Vec2::new(0, 0);
     state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
     let out = step(&mut state, FrameInput::default());
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::RoundTie)));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::RoundTie))
+    );
     assert_eq!(state.rounds_won, [0, 0]);
     assert_eq!(state.phase, crate::MatchPhase::Serving);
 }
@@ -247,10 +259,11 @@ fn second_round_win_sets_match_over() {
     state.ball.pos = crate::Vec2::new(0, 0);
     state.ball.vel = crate::Vec2::new(crate::rules::BALL_SPEED, 0);
     let out = step(&mut state, FrameInput::default());
-    assert!(out
-        .events
-        .iter()
-        .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 })));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::RoundWin { winner: 0 }))
+    );
     assert_eq!(state.rounds_won[0], 2);
     assert_eq!(state.phase, crate::MatchPhase::MatchOver);
 }
@@ -269,10 +282,11 @@ fn paddle_shove_launches_wild_brick() {
     state.paddles[0].x = -crate::rules::WILD_BRICK_HALF;
     state.paddles[0].vx = crate::rules::PADDLE_SPEED * 2;
     let out = step(&mut state, FrameInput::default());
-    assert!(out.events.iter().any(|e| matches!(
-        e,
-        crate::ConfirmedEvent::WildPaddleKnock { player: 0, .. }
-    )));
+    assert!(
+        out.events
+            .iter()
+            .any(|e| matches!(e, crate::ConfirmedEvent::WildPaddleKnock { player: 0, .. }))
+    );
     assert!(
         state.wild_bricks[0].vx.abs() > 0 || state.wild_bricks[0].vy.abs() > 0,
         "tier-1 wild should receive shove velocity"

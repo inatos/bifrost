@@ -1,16 +1,16 @@
 use crate::config::AppConfig;
-use crate::rooms::{assert_protocol, RoomStore};
+use crate::rooms::{RoomStore, assert_protocol};
 use crate::turn::turn_config;
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use bifrost_protocol::{
     CreateRoomRequest, CreateRoomResponse, HealthResponse, JoinRoomRequest, JoinRoomResponse,
-    LeaveRoomRequest, LeaveRoomResponse, RoomInfoResponse, TurnCredentialsResponse,
-    PROTOCOL_VERSION,
+    LeaveRoomRequest, LeaveRoomResponse, PROTOCOL_VERSION, RoomInfoResponse,
+    TurnCredentialsResponse,
 };
 use std::sync::Arc;
 
@@ -91,15 +91,13 @@ pub async fn leave_room(
     let (role, lobby_closed) = store
         .leave(&code, &body.ticket)
         .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(LeaveRoomResponse {
-        lobby_closed,
-        role,
-    }))
+    Ok(Json(LeaveRoomResponse { lobby_closed, role }))
 }
 
 pub async fn turn_credentials() -> Result<Json<TurnCredentialsResponse>, StatusCode> {
     let config = AppConfig::from_env();
-    let (urls, username, credential) = turn_config(&config).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let (urls, username, credential) =
+        turn_config(&config).ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(TurnCredentialsResponse {
         urls,
         username,

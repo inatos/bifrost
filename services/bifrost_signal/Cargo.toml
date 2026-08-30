@@ -34,3 +34,6 @@ hex = { workspace = true }
 thiserror = { workspace = true }
 clap = { workspace = true }
 matchbox_signaling = "0.14"
+
+[lints]
+workspace = true

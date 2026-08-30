@@ -1,20 +1,22 @@
 //! GGRS + Matchbox P2P online session.
 
+use std::time::Duration;
+
 use bevy::input::gamepad::Gamepad;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy_ggrs::ggrs::{DesyncDetection, GgrsEvent, SessionBuilder};
 use bevy_ggrs::prelude::*;
 use bevy_ggrs::{LocalInputs, LocalPlayers};
-use bevy_matchbox::matchbox_socket::PeerId;
 use bevy_matchbox::prelude::*;
 use bifrost_net::{BifrostInput, DEFAULT_INPUT_DELAY, DEFAULT_MAX_PREDICTION, FPS};
-use bifrost_sim::{new_match, step, FrameInput, MatchPhase, WorldState};
+use bifrost_sim::{FrameInput, MatchPhase, WorldState, new_match, step};
+use matchbox_socket::RtcIceServerConfig;
 
 use crate::local_input::local_input_mask;
 
-use crate::interp::InterpState;
 use crate::input_focus::InputFocus;
+use crate::interp::InterpState;
 use crate::net_mode::NetSession;
 use crate::session_boot;
 use crate::state::{AppState, LaunchConfig, SimSnapshot, UiChannel};
@@ -26,9 +28,19 @@ fn online_session_active(config: Res<LaunchConfig>) -> bool {
 pub type BifrostConfig = GgrsConfig<BifrostInput, PeerId>;
 
 const NUM_PLAYERS: usize = 2;
+/// Wait this many Update ticks after both peers connect before starting GGRS so
+/// the WebRTC/TURN data channel can finish ICE and deliver the first packets.
+const LOBBY_START_HOLD_FRAMES: u32 = 60;
+/// TURN/relay paths need a much wider quiet window than LAN defaults (2s).
+const GGRS_DISCONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const GGRS_DISCONNECT_NOTIFY: Duration = Duration::from_secs(5);
 
 #[derive(Resource, Clone, PartialEq, Eq)]
 pub struct RollbackWorld(pub WorldState);
+
+/// Counts consecutive Lobby Update frames with a full peer set before session start.
+#[derive(Resource, Default)]
+struct LobbyStartHold(u32);
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(GgrsPlugin::<BifrostConfig>::default())
@@ -36,10 +48,14 @@ pub fn plugin(app: &mut App) {
         .rollback_resource_with_clone::<RollbackWorld>()
         .checksum_resource(|world: &RollbackWorld| bifrost_sim::checksum(&world.0))
         .insert_resource(NetSession::new())
+        .init_resource::<LobbyStartHold>()
         .add_systems(ReadInputs, read_local_inputs.run_if(online_session_active))
         .add_systems(
             OnEnter(AppState::Lobby),
-            start_matchbox_socket.run_if(online_session_active),
+            (
+                reset_lobby_hold,
+                start_matchbox_socket.run_if(online_session_active),
+            ),
         )
         .add_systems(
             Update,
@@ -65,9 +81,16 @@ pub fn plugin(app: &mut App) {
         .add_systems(GgrsSchedule, ggrs_step.run_if(online_session_active));
 }
 
+fn reset_lobby_hold(mut hold: ResMut<LobbyStartHold>) {
+    hold.0 = 0;
+}
+
 pub fn matchbox_room_url(args: &crate::args::Args) -> String {
     let room = args.room.as_ref().expect("room required for online play");
-    let ticket = args.ticket.as_ref().expect("ticket required for online play");
+    let ticket = args
+        .ticket
+        .as_ref()
+        .expect("ticket required for online play");
     let base = args.signal.trim_end_matches('/');
     format!("{base}/{room}?ticket={ticket}&next=2")
 }
@@ -79,13 +102,28 @@ fn seed_from_room(room: &str) -> u64 {
     hasher.finish() ^ 0xB1F05E
 }
 
+fn matchbox_ice_server(args: &crate::args::Args) -> RtcIceServerConfig {
+    let mut ice = RtcIceServerConfig::default();
+    if args.turn_urls.is_empty() {
+        return ice;
+    }
+    ice.urls.extend(args.turn_urls.iter().cloned());
+    ice.username = args.turn_username.clone();
+    ice.credential = args.turn_credential.clone();
+    ice
+}
+
 fn start_matchbox_socket(
     mut commands: Commands,
     config: Res<LaunchConfig>,
     mut ui: ResMut<UiChannel>,
 ) {
     let url = matchbox_room_url(&config.args);
-    info!("connecting to matchbox at {url}");
+    let ice = matchbox_ice_server(&config.args);
+    info!(
+        "connecting to matchbox at {url} (turn_urls={})",
+        ice.urls.len().saturating_sub(2)
+    );
     if let Some(code) = &config.args.room {
         ui.room_code = Some(code.clone());
         ui.status = format!("Connecting to room {code}…");
@@ -93,7 +131,11 @@ fn start_matchbox_socket(
         ui.lobby_waiting = true;
         ui.lobby_peers = 1;
     }
-    commands.insert_resource(MatchboxSocket::new_unreliable(url));
+    let socket: MatchboxSocket = WebRtcSocketBuilder::new(url)
+        .ice_server(ice)
+        .add_channel(ChannelConfig::unreliable())
+        .into();
+    commands.insert_resource(socket);
 }
 
 fn lobby_system(
@@ -103,6 +145,7 @@ fn lobby_system(
     mut next: ResMut<NextState<AppState>>,
     mut ui: ResMut<UiChannel>,
     mut net: Option<ResMut<NetSession>>,
+    mut hold: ResMut<LobbyStartHold>,
 ) {
     let Ok(peer_changes) = socket.try_update_peers() else {
         ui.error = Some("Signaling connection lost".into());
@@ -126,27 +169,40 @@ fn lobby_system(
     } else {
         "ready".into()
     };
-    ui.status = if remaining > 0 {
-        format!("Waiting for {remaining} more player(s)…")
-    } else {
-        "Starting match…".into()
-    };
 
     if remaining > 0 {
+        hold.0 = 0;
+        ui.status = format!("Waiting for {remaining} more player(s)…");
+        return;
+    }
+
+    hold.0 = hold.0.saturating_add(1);
+    if hold.0 < LOBBY_START_HOLD_FRAMES {
+        ui.status = format!(
+            "Opponent joined — syncing link… ({}/{})",
+            hold.0, LOBBY_START_HOLD_FRAMES
+        );
         return;
     }
 
     let players = socket.players();
     if players.len() < NUM_PLAYERS {
+        ui.status = "Opponent joined — waiting for peer id…".into();
         return;
     }
+
+    ui.status = "Starting match…".into();
 
     let input_delay = config.args.lag_frames as usize + DEFAULT_INPUT_DELAY;
     let mut builder = SessionBuilder::<BifrostConfig>::new()
         .with_num_players(NUM_PLAYERS)
         .with_max_prediction_window(DEFAULT_MAX_PREDICTION)
         .with_input_delay(input_delay)
-        .with_desync_detection_mode(DesyncDetection::On { interval: 30 });
+        .with_disconnect_timeout(GGRS_DISCONNECT_TIMEOUT)
+        .with_disconnect_notify_delay(GGRS_DISCONNECT_NOTIFY)
+        .with_desync_detection_mode(DesyncDetection::On { interval: 30 })
+        .with_fps(FPS)
+        .expect("GGRS fps");
 
     for (i, player) in players.into_iter().enumerate() {
         builder = builder
@@ -170,6 +226,7 @@ fn lobby_system(
     ui.lobby_phase = "match".into();
     ui.lobby_waiting = false;
     ui.lobby_peers = 2;
+    hold.0 = 0;
     next.set(AppState::InGame);
 }
 
@@ -220,14 +277,7 @@ fn read_local_inputs(
         .map(|a| (a.x, a.y))
         .unwrap_or((paddle.x, paddle.y));
     let mask = local_input_mask(
-        &keys,
-        &mouse,
-        &gamepads,
-        &windows,
-        &camera_q,
-        aim_x,
-        aim_y,
-        &mut focus,
+        &keys, &mouse, &gamepads, &windows, &camera_q, aim_x, aim_y, &mut focus,
     );
     let mut local_inputs = HashMap::new();
     for handle in &local_players.0 {
@@ -312,16 +362,15 @@ fn poll_ggrs_events(
                 warn!("GGRS peer disconnected: {event:?}");
                 mark_peer_disconnected(&mut net, &mut ui, "Opponent disconnected.");
             }
-            GgrsEvent::NetworkInterrupted { disconnect_timeout, .. } => {
+            GgrsEvent::NetworkInterrupted {
+                disconnect_timeout, ..
+            } => {
                 // Warning only — GGRS will emit Disconnected after disconnect_timeout.
                 // Treating this as a hard drop aborts lobby sync / Ready Up on flaky UDP.
-                warn!(
-                    "GGRS network interrupted ({disconnect_timeout}ms to drop): {event:?}"
-                );
+                warn!("GGRS network interrupted ({disconnect_timeout}ms to drop): {event:?}");
                 if !net.peer_disconnected {
-                    ui.status = format!(
-                        "Connection unstable — reconnecting ({disconnect_timeout}ms)…"
-                    );
+                    ui.status =
+                        format!("Connection unstable — reconnecting ({disconnect_timeout}ms)…");
                 }
             }
             GgrsEvent::NetworkResumed { .. } => {

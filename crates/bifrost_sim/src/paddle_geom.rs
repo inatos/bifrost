@@ -1,9 +1,9 @@
 //! Trapezoid paddle geometry + jump helpers (deterministic).
 
-use crate::fixed::Vec2;
 use crate::fixed::FP_SCALE;
+use crate::fixed::Vec2;
 use crate::fixed::isqrt;
-use crate::rules::{PaddleState, PADDLE_H, PADDLE_W};
+use crate::rules::{PADDLE_H, PADDLE_W, PaddleState};
 
 /// Narrow width at the backboard edge; full width toward arena center.
 pub const PADDLE_W_BACK: i32 = PADDLE_W * 7 / 10;

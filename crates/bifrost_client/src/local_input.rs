@@ -3,8 +3,8 @@
 use bevy::input::gamepad::{Gamepad, GamepadButton};
 use bevy::prelude::*;
 use bifrost_sim::{
-    INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_JUMP, INPUT_LEFT, INPUT_RIGHT, INPUT_SPIN,
-    INPUT_UP, FP_SCALE, PADDLE_SPEED, PADDLE_W,
+    FP_SCALE, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_JUMP, INPUT_LEFT, INPUT_RIGHT,
+    INPUT_SPIN, INPUT_UP, PADDLE_SPEED, PADDLE_W,
 };
 
 use crate::input_focus::{InputDevice, InputFocus};
@@ -63,7 +63,8 @@ pub fn local_input_mask(
         focus.note_keyboard();
         return kb | extras;
     }
-    if pad != 0 || embed_south || embed_west || embed_kb != 0 || embed_jump != 0 || embed_spin != 0 {
+    if pad != 0 || embed_south || embed_west || embed_kb != 0 || embed_jump != 0 || embed_spin != 0
+    {
         focus.note_gamepad();
         return pad | extras;
     }
@@ -371,12 +372,8 @@ fn read_embed_pad() -> Option<(f32, f32, bool, bool)> {
     if hook.is_undefined() || hook.is_null() {
         return None;
     }
-    let lx = js_sys::Reflect::get(&hook, &"lx".into())
-        .ok()?
-        .as_f64()? as f32;
-    let ly = js_sys::Reflect::get(&hook, &"ly".into())
-        .ok()?
-        .as_f64()? as f32;
+    let lx = js_sys::Reflect::get(&hook, &"lx".into()).ok()?.as_f64()? as f32;
+    let ly = js_sys::Reflect::get(&hook, &"ly".into()).ok()?.as_f64()? as f32;
     let south = js_sys::Reflect::get(&hook, &"south".into())
         .ok()
         .and_then(|v| v.as_bool())

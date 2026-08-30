@@ -4,7 +4,10 @@ mod rooms;
 mod routes;
 mod turn;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use clap::Parser;
 use config::AppConfig;
 use rooms::RoomStore;
@@ -26,12 +29,19 @@ struct Cli {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("bifrost_signal=info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("bifrost_signal=info".parse().unwrap()),
+        )
         .init();
 
     let cli = Cli::parse();
-    let _config = AppConfig::from_env();
-    let store = Arc::new(RoomStore::new(_config.room_ttl_secs));
+    let config = AppConfig::from_env();
+    tracing::info!(
+        public_origin = %config.public_origin,
+        public_ws_origin = %config.public_ws_origin,
+        "bifrost_signal config"
+    );
+    let store = Arc::new(RoomStore::new(config.room_ttl().as_secs()));
 
     let matchbox_store = store.clone();
     let matchbox_port = cli.matchbox_port;
@@ -55,7 +65,9 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(store);
 
-    let addr: SocketAddr = format!("{}:{}", cli.bind, cli.port).parse().expect("bind addr");
+    let addr: SocketAddr = format!("{}:{}", cli.bind, cli.port)
+        .parse()
+        .expect("bind addr");
     tracing::info!("bifrost_signal API listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
     axum::serve(listener, app).await.expect("serve");

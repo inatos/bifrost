@@ -2,8 +2,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, Mesh, PrimitiveTopology};
 use bevy::prelude::*;
 use bifrost_sim::{
-    can_ground_pound, jump_scale_fixed, paddle_airborne, BRICK_COLS, BRICK_ROWS, FP_SCALE,
-    MAX_WILD_BRICKS, MatchPhase, OWNER_NEUTRAL, PADDLE_H, PADDLE_W, PADDLE_W_BACK,
+    BRICK_COLS, BRICK_ROWS, FP_SCALE, MAX_WILD_BRICKS, MatchPhase, OWNER_NEUTRAL, PADDLE_H,
+    PADDLE_W, PADDLE_W_BACK, can_ground_pound, jump_scale_fixed, paddle_airborne,
 };
 
 use crate::interp::{InterpState, VisualSnapshot};
@@ -60,7 +60,10 @@ pub(crate) enum ArenaPart {
     LabelHint(u8),
     ScoreSide(u8),
     /// Diegetic match stock (best-of-3). `slot` is 0 or 1.
-    RoundStock { player: u8, slot: u8 },
+    RoundStock {
+        player: u8,
+        slot: u8,
+    },
     MatchOverText,
     FlashOverlay,
     FaceOffRing,
@@ -73,7 +76,10 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, load_arena_assets)
         .add_systems(OnEnter(AppState::InGame), spawn_arena)
         .add_systems(OnExit(AppState::InGame), despawn_arena)
-        .add_systems(Update, sync_arena_visuals.run_if(in_state(AppState::InGame)));
+        .add_systems(
+            Update,
+            sync_arena_visuals.run_if(in_state(AppState::InGame)),
+        );
 }
 
 pub fn ball_owner_color(owner: u8) -> Color {
@@ -425,11 +431,7 @@ fn spawn_wild_bricks(commands: &mut Commands, assets: &ArenaAssets) {
     }
 }
 
-fn spawn_paddles_and_ball(
-    commands: &mut Commands,
-    assets: &ArenaAssets,
-    snap: &VisualSnapshot,
-) {
+fn spawn_paddles_and_ball(commands: &mut Commands, assets: &ArenaAssets, snap: &VisualSnapshot) {
     for player in 0..2 {
         commands.spawn((
             Mesh2d(assets.paddle_mesh.clone()),
@@ -635,8 +637,8 @@ fn sync_arena_visuals(
                     if let Some(m) = materials.get_mut(&mat_h.0) {
                         let spinning = paddle.spin_remain > 0;
                         let pound_ready = can_ground_pound(&paddle);
-                        let wind_t = (paddle.angle.abs() as f32 / (180.0 * FP_SCALE as f32))
-                            .clamp(0.0, 1.0);
+                        let wind_t =
+                            (paddle.angle.abs() as f32 / (180.0 * FP_SCALE as f32)).clamp(0.0, 1.0);
                         // Tech window: lighter wash so pound is readable at apex.
                         // Wind-up: warm tension tint; full charge → lightning glow.
                         m.color = if full_charge && paddle.angle_was_held {
@@ -663,11 +665,9 @@ fn sync_arena_visuals(
                             )
                         } else if wind_t > 0.05 {
                             Color::srgba(
-                                (base.to_srgba().red * (1.0 - wind_t * 0.35)
-                                    + wind_t * 1.0)
+                                (base.to_srgba().red * (1.0 - wind_t * 0.35) + wind_t * 1.0)
                                     .min(1.0),
-                                (base.to_srgba().green * (1.0 - wind_t * 0.2)
-                                    + wind_t * 0.55)
+                                (base.to_srgba().green * (1.0 - wind_t * 0.2) + wind_t * 0.55)
                                     .min(1.0),
                                 (base.to_srgba().blue * (1.0 - wind_t * 0.45)).max(0.15),
                                 1.0,
@@ -811,22 +811,14 @@ fn sync_arena_visuals(
             }
             ArenaPart::CornerRamp(id) => {
                 let active = pulse_t > 0 && id == pulse_id;
-                let t = if active {
-                    pulse_t as f32 / 28.0
-                } else {
-                    0.0
-                };
+                let t = if active { pulse_t as f32 / 28.0 } else { 0.0 };
                 let wave = (t * std::f32::consts::PI).sin().abs();
                 let scale = 1.0 + wave * 0.4;
                 transform.scale = Vec3::new(scale, scale, 1.0);
                 if let Some(mat_h) = mat.as_mut() {
                     if let Some(m) = materials.get_mut(&mat_h.0) {
                         if pulse_t > 0 {
-                            m.color = Color::srgb(
-                                0.55 + wave * 0.4,
-                                0.75 + wave * 0.2,
-                                1.0,
-                            );
+                            m.color = Color::srgb(0.55 + wave * 0.4, 0.75 + wave * 0.2, 1.0);
                         } else {
                             m.color = Color::srgb(0.72, 0.55, 0.92);
                         }
@@ -850,11 +842,8 @@ fn sync_arena_visuals(
                 } else {
                     -ARENA_H / 2.0 + 72.0
                 };
-                transform.translation = Vec3::new(
-                    -ARENA_W / 2.0 + 88.0 + slot as f32 * 20.0,
-                    y,
-                    5.0,
-                );
+                transform.translation =
+                    Vec3::new(-ARENA_W / 2.0 + 88.0 + slot as f32 * 20.0, y, 5.0);
                 if let Some(mut sprite) = sprite {
                     let filled = won > slot;
                     sprite.color = if player == 0 {
@@ -929,7 +918,11 @@ fn brick_tint(hp: u8, max_hp: u8) -> Color {
     } else if damage < 0.67 {
         Color::mix(&mid, &critical, (damage - 0.34) / 0.33)
     } else {
-        Color::mix(&critical, &Color::srgb(0.55, 0.62, 0.78), (damage - 0.67) / 0.33)
+        Color::mix(
+            &critical,
+            &Color::srgb(0.55, 0.62, 0.78),
+            (damage - 0.67) / 0.33,
+        )
     }
 }
 

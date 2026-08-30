@@ -27,6 +27,19 @@ pub struct Args {
     /// Simulated input delay frames (Lag Forge)
     #[arg(long, default_value_t = 0)]
     pub lag_frames: u32,
+
+    /// Coturn URLs from `/api/turn` (shell → bifrost_connect; not CLI/URL).
+    #[arg(skip)]
+    #[serde(default, skip_serializing)]
+    pub turn_urls: Vec<String>,
+
+    #[arg(skip)]
+    #[serde(default, skip_serializing)]
+    pub turn_username: Option<String>,
+
+    #[arg(skip)]
+    #[serde(default, skip_serializing)]
+    pub turn_credential: Option<String>,
 }
 
 impl Args {

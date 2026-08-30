@@ -1,7 +1,9 @@
 //! Interpolation between fixed sim ticks for smooth visuals.
 
 use bevy::prelude::*;
-use bifrost_sim::{FP_SCALE, MatchPhase, PaddleState, WildBrick, WorldState, BRICK_COUNT, MAX_WILD_BRICKS};
+use bifrost_sim::{
+    BRICK_COUNT, FP_SCALE, MAX_WILD_BRICKS, MatchPhase, PaddleState, WildBrick, WorldState,
+};
 
 const ARENA_W: f32 = 1200.0;
 const ARENA_H: f32 = 480.0;

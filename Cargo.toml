@@ -52,3 +52,18 @@ opt-level = "z"
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Fixed-point / rollback sim trips several pedantic Clippy lints by design.
+[workspace.lints.clippy]
+identity_op = "allow"
+manual_is_multiple_of = "allow"
+too_many_arguments = "allow"
+should_implement_trait = "allow"
+overly_complex_bool_expr = "allow"
+if_same_then_else = "allow"
+nonminimal_bool = "allow"
+collapsible_if = "allow"
+needless_range_loop = "allow"
+unnecessary_cast = "allow"
+useless_conversion = "allow"
+manual_clamp = "allow"

@@ -1,0 +1,32 @@
+# Edge mode: Bifrost behind Arathyll's single Caddy (shared network arathyll_edge).
+# Usage on the VPS:
+#   docker network create arathyll_edge  # if release stack not up yet
+#   cd /usr/deploy/bifrost/deploy
+#   cp -n .env.example .env   # PUBLIC_ORIGIN=https://bifrost.arathyll.com …
+#   docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+#
+# Do NOT enable profile bifrost-own-caddy on a box that already binds :80/:443.
+
+services:
+  caddy:
+    # Disabled unless explicitly: --profile bifrost-own-caddy
+    profiles: ["bifrost-own-caddy"]
+
+  signal:
+    networks:
+      default: {}
+      arathyll_edge:
+        aliases:
+          - bifrost_signal
+
+  web:
+    networks:
+      default: {}
+      arathyll_edge:
+        aliases:
+          - bifrost_web
+
+networks:
+  arathyll_edge:
+    external: true
+    name: arathyll_edge

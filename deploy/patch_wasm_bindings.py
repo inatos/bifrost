@@ -1,9 +1,19 @@
-"""Post-Trunk index.html fixes: wasmBindings before init + non-blocking load after shell.js."""
+"""Post-Trunk index.html fixes: wasmBindings before init + strip fragile SRI.
+
+Trunk embeds sha384 integrity on modulepreload/wasm/css. Immutable long-cache
+on those URLs plus mid-deploy HTML/JS skew (or a stale browser body for the
+same hashed filename) makes Firefox reject the WASM glue with an integrity
+mismatch — WASM never starts, so Matchbox never connects and Ready Up never
+appears. Strip integrity so load follows the live bytes.
+"""
 import re
 from pathlib import Path
 
 path = Path("dist/index.html")
 html = path.read_text()
+
+# Drop Subresource Integrity — hashed filenames already cache-bust content.
+html = re.sub(r'\s+integrity="[^"]+"', "", html)
 
 module_re = re.compile(r"<script type=\"module\">.*?</script>", re.DOTALL)
 match = module_re.search(html)

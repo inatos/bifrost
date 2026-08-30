@@ -1,4 +1,4 @@
-use bifrost_protocol::{PlayerRole, PROTOCOL_VERSION, MAX_PLAYERS};
+use bifrost_protocol::{PROTOCOL_VERSION, PlayerRole};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use rand::Rng;
@@ -159,12 +159,10 @@ pub fn assert_protocol(version: u32) -> Result<(), String> {
     Ok(())
 }
 
-pub const MAX_PLAYERS_CONST: usize = MAX_PLAYERS;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bifrost_protocol::{PlayerRole, PROTOCOL_VERSION};
+    use bifrost_protocol::{PROTOCOL_VERSION, PlayerRole};
 
     #[test]
     fn room_create_and_join() {

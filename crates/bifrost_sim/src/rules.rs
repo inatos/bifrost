@@ -1,4 +1,4 @@
-use crate::fixed::{Vec2, FP_SCALE};
+use crate::fixed::{FP_SCALE, Vec2};
 use crate::input::{FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_JUMP, INPUT_SPIN};
 use crate::paddle_geom::{JUMP_GRAVITY, JUMP_INITIAL_V, MAX_JUMP_Z, paddle_airborne};
 use serde::{Deserialize, Serialize};
@@ -281,7 +281,12 @@ impl WorldState {
             angle_strike: 0,
             jump_peak_z: 0,
         };
-        init_brick_hp(self.seed, self.round_index, &mut self.brick_hp, &mut self.brick_max_hp);
+        init_brick_hp(
+            self.seed,
+            self.round_index,
+            &mut self.brick_hp,
+            &mut self.brick_max_hp,
+        );
         self.round_index = self.round_index.saturating_add(1);
         self.wild_bricks = [WildBrick::default(); MAX_WILD_BRICKS];
         self.wild_spawn_cd = 60;
@@ -333,8 +338,8 @@ impl WorldState {
         let row = (index / BRICK_COLS as usize) as i32;
         let grid_w = BRICK_COLS as i32 * BRICK_W + (BRICK_COLS as i32 - 1) * BRICK_GAP;
         let start_x = -grid_w / 2 + BRICK_W / 2;
-        let start_y = -((BRICK_ROWS as i32 - 1) * (BRICK_H + BRICK_GAP)) / 2
-            + row * (BRICK_H + BRICK_GAP);
+        let start_y =
+            -((BRICK_ROWS as i32 - 1) * (BRICK_H + BRICK_GAP)) / 2 + row * (BRICK_H + BRICK_GAP);
         Vec2::new(start_x + col * (BRICK_W + BRICK_GAP), start_y)
     }
 
@@ -573,11 +578,7 @@ fn try_finish_round(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEve
     }
 }
 
-fn apply_round_win(
-    state: &mut WorldState,
-    events: &mut Vec<crate::ConfirmedEvent>,
-    scorer: u8,
-) {
+fn apply_round_win(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEvent>, scorer: u8) {
     use crate::ConfirmedEvent;
     state.rounds_won[scorer as usize] += 1;
     events.push(ConfirmedEvent::RoundWin { winner: scorer });
@@ -698,14 +699,8 @@ fn tick_angle_wave(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEven
     let oy = state.angle_wave_y;
     let owner = state.angle_wave_player;
 
-    let (bx, by) = apply_radial_knock_r(
-        ox,
-        oy,
-        state.ball.pos.x,
-        state.ball.pos.y,
-        strength,
-        radius,
-    );
+    let (bx, by) =
+        apply_radial_knock_r(ox, oy, state.ball.pos.x, state.ball.pos.y, strength, radius);
     if bx != 0 || by != 0 {
         state.ball.vel.x += bx;
         state.ball.vel.y += by;
@@ -714,8 +709,8 @@ fn tick_angle_wave(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEven
     }
 
     let other = 1usize.saturating_sub(owner as usize);
-    let other_attacking = state.paddles[other].spin_remain > 0
-        || state.paddles[other].angle_strike > FP_SCALE;
+    let other_attacking =
+        state.paddles[other].spin_remain > 0 || state.paddles[other].angle_strike > FP_SCALE;
     let (kx, ky) = apply_radial_knock_r(
         ox,
         oy,
@@ -834,8 +829,8 @@ fn tick_corner_pulses(state: &mut WorldState, events: &mut Vec<crate::ConfirmedE
     if state.corner_pulse_t > 0 {
         state.corner_pulse_t -= 1;
         let origin = corner_origin(state.corner_pulse_id);
-        let strength = CORNER_PULSE_KNOCK * (state.corner_pulse_t as i32 + 1)
-            / CORNER_PULSE_DURATION as i32;
+        let strength =
+            CORNER_PULSE_KNOCK * (state.corner_pulse_t as i32 + 1) / CORNER_PULSE_DURATION as i32;
         let (bx, by) = apply_radial_knock(
             origin.x,
             origin.y,
@@ -877,7 +872,8 @@ fn tick_corner_pulses(state: &mut WorldState, events: &mut Vec<crate::ConfirmedE
     }
     state.corner_pulse_id = ((mix >> 8) % 4) as u8;
     state.corner_pulse_t = CORNER_PULSE_DURATION;
-    state.corner_pulse_cd = CORNER_PULSE_COOLDOWN_MIN + (mix % CORNER_PULSE_COOLDOWN_SPAN as u64) as u32;
+    state.corner_pulse_cd =
+        CORNER_PULSE_COOLDOWN_MIN + (mix % CORNER_PULSE_COOLDOWN_SPAN as u64) as u32;
     let origin = corner_origin(state.corner_pulse_id);
     events.push(ConfirmedEvent::CornerPulse {
         corner: state.corner_pulse_id,
@@ -1174,11 +1170,7 @@ fn release_spin(
     });
 }
 
-fn tick_spin_sweep(
-    state: &mut WorldState,
-    player: usize,
-    events: &mut Vec<crate::ConfirmedEvent>,
-) {
+fn tick_spin_sweep(state: &mut WorldState, player: usize, events: &mut Vec<crate::ConfirmedEvent>) {
     use crate::ConfirmedEvent;
     use crate::collision::enforce_ball_speed;
     if state.paddles[player].spin_remain == 0 {
@@ -1376,18 +1368,18 @@ fn resolve_paddle_wilds(state: &mut WorldState) -> Vec<crate::ConfirmedEvent> {
 fn resolve_paddle_paddle(state: &mut WorldState) {
     let (a_min_x, a_min_y, a_max_x, a_max_y) = super::paddle_geom::paddle_aabb(&state.paddles[0]);
     let (b_min_x, b_min_y, b_max_x, b_max_y) = super::paddle_geom::paddle_aabb(&state.paddles[1]);
-    let (ox, oy) = aabb_overlap(a_min_x, a_min_y, a_max_x, a_max_y, b_min_x, b_min_y, b_max_x, b_max_y);
+    let (ox, oy) = aabb_overlap(
+        a_min_x, a_min_y, a_max_x, a_max_y, b_min_x, b_min_y, b_max_x, b_max_y,
+    );
     if ox == 0 || oy == 0 {
         return;
     }
     let a_wave = state.angle_wave_t > 0 && state.angle_wave_player == 0;
     let b_wave = state.angle_wave_t > 0 && state.angle_wave_player == 1;
-    let a_attack = state.paddles[0].spin_remain > 0
-        || state.paddles[0].angle_strike > FP_SCALE
-        || a_wave;
-    let b_attack = state.paddles[1].spin_remain > 0
-        || state.paddles[1].angle_strike > FP_SCALE
-        || b_wave;
+    let a_attack =
+        state.paddles[0].spin_remain > 0 || state.paddles[0].angle_strike > FP_SCALE || a_wave;
+    let b_attack =
+        state.paddles[1].spin_remain > 0 || state.paddles[1].angle_strike > FP_SCALE || b_wave;
     let clang = a_attack && b_attack;
 
     // Attack clang (spin / snapback) works airborne; body checks stay grounded.
