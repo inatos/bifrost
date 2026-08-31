@@ -9,10 +9,10 @@ pub const FPS: usize = 60;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BifrostInput {
-    pub mask: u8,
+    pub mask: u16,
 }
 
-impl From<BifrostInput> for u8 {
+impl From<BifrostInput> for u16 {
     fn from(v: BifrostInput) -> Self {
         v.mask
     }
@@ -43,7 +43,7 @@ impl RollbackDiagnostics {
     }
 }
 
-pub fn pack_inputs(p0: u8, p1: u8) -> FrameInput {
+pub fn pack_inputs(p0: u16, p1: u16) -> FrameInput {
     FrameInput { p0, p1 }
 }
 

@@ -48,40 +48,88 @@
     </header>
 
     <nav id="embed-options" class="embed-options" aria-label="Match options">
-      <div class="embed-options-row">
-        <span class="embed-brand">Bifrost</span>
-        <input id="embed-player-name" class="embed-name" maxlength="7" autocomplete="nickname" placeholder="Name" aria-label="Your name (7 letters max)" title="Your tag on the HUD (max 7 letters)" />
-        <button id="btn-embed-bot" type="button" title="Start a bot match (Ready first)">Bot</button>
-        <button id="btn-embed-create" type="button" title="Create a private online room">Create</button>
-        <button id="btn-embed-join" type="button" title="Join a room with the code below">Join</button>
-        <button id="btn-embed-inspector" type="button" aria-pressed="false" title="Toggle rollback netcode inspector">Inspector</button>
-        <button id="btn-embed-controls" type="button" title="Control options">Controls</button>
+      <div class="embed-options-row embed-chrome-bar">
+        <button
+          id="btn-embed-collapse"
+          type="button"
+          class="embed-collapse-btn"
+          aria-expanded="true"
+          aria-controls="embed-options-body"
+          title="Collapse game bar"
+        >
+          <span class="embed-collapse-chevron" aria-hidden="true"></span>
+          <span class="embed-brand">Bifrost</span>
+        </button>
+        <span id="embed-collapse-hint" class="embed-collapse-hint" hidden>Tap to expand menu</span>
       </div>
-      <div class="embed-options-row embed-room-row">
-        <div class="embed-room-field">
-          <input id="embed-room-code" maxlength="8" autocomplete="off" placeholder="Room code" aria-label="Room code" title="Paste a room code from a friend" />
-          <button id="btn-embed-copy" type="button" class="embed-icon-btn embed-room-copy" title="Copy room code" aria-label="Copy room code">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-          </button>
+      <div id="embed-options-body" class="embed-options-body">
+        <div class="embed-options-row">
+          <input id="embed-player-name" class="embed-name" maxlength="7" autocomplete="nickname" placeholder="Name" aria-label="Your name (7 letters max)" title="Your tag on the HUD (max 7 letters)" />
+          <button id="btn-embed-bot" type="button" title="Start a bot match (Ready first)">Bot</button>
+          <button id="btn-embed-create" type="button" title="Create a private online room">Create</button>
+          <button id="btn-embed-join" type="button" title="Join a room with the code below">Join</button>
+          <button id="btn-embed-inspector" type="button" aria-pressed="false" title="Toggle rollback netcode inspector">Inspector</button>
+          <button id="btn-embed-controls" type="button" title="Control options">Controls</button>
         </div>
-        <button id="btn-embed-launch" type="button" title="Connect with ticket or start bot if empty">Launch</button>
+        <div class="embed-options-row embed-room-row">
+          <div class="embed-room-field">
+            <input id="embed-room-code" maxlength="8" autocomplete="off" placeholder="Room code" aria-label="Room code" title="Paste a room code from a friend" />
+            <button id="btn-embed-copy" type="button" class="embed-icon-btn embed-room-copy" title="Copy room code" aria-label="Copy room code">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+          <button id="btn-embed-launch" type="button" title="Connect with ticket or start bot if empty">Launch</button>
+        </div>
+        <p id="embed-status" class="embed-status" aria-live="polite"></p>
       </div>
-      <p id="embed-status" class="embed-status" aria-live="polite"></p>
     </nav>
 
     <main class="stage">
       <div class="arena-wrap">
         <canvas id="bevy-canvas" tabindex="0" aria-label="Bifrost game canvas"></canvas>
         <div id="touch-pad" class="touch-pad" hidden aria-hidden="true">
-          <div class="touch-pad-base" id="touch-pad-move" data-press-skip aria-label="Move paddle">
-            <span class="touch-pad-knob" id="touch-pad-knob" aria-hidden="true"></span>
+          <div class="touch-bisect touch-bisect-left" id="touch-bisect-move" data-press-skip aria-label="Move paddle"></div>
+          <div class="touch-bisect touch-bisect-right" id="touch-bisect-aim" data-press-skip aria-label="Aim stick"></div>
+          <div class="touch-pad-left-col">
+            <div class="touch-pad-stick touch-pad-left" aria-hidden="true">
+              <div class="touch-pad-base" id="touch-pad-move" data-press-skip>
+                <span class="touch-pad-ripple" aria-hidden="true">
+                  <span class="touch-pad-ripple-soft"></span>
+                  <span class="touch-pad-ripple-soft touch-pad-ripple-soft-delay"></span>
+                  <span class="touch-pad-ripple-ring"></span>
+                  <span class="touch-pad-ripple-ring touch-pad-ripple-ring-delay"></span>
+                </span>
+                <span class="touch-pad-knob" id="touch-pad-knob"></span>
+              </div>
+            </div>
           </div>
-          <div class="touch-pad-actions" data-press-skip>
-            <button type="button" id="touch-jump" data-press-skip aria-label="Jump">Jump</button>
-            <button type="button" id="touch-spin" data-press-skip aria-label="Spin">Spin</button>
+          <div class="touch-pad-right-col">
+            <div class="touch-pad-face-wrap" data-press-skip>
+              <!-- Off-board fan right of R-stick: Spin · Grapple · Jump (no overlap). -->
+              <button type="button" id="touch-spin" class="touch-face touch-face-spin" data-press-skip aria-label="Spin">
+                <svg class="touch-glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 0 1 8.7 6.7l-2.1.6A6.9 6.9 0 0 0 12 5.1 6.9 6.9 0 0 0 5.1 12H2.2A9 9 0 0 1 12 3zm0 18a9 9 0 0 1-8.7-6.7l2.1-.6A6.9 6.9 0 0 0 12 18.9a6.9 6.9 0 0 0 6.9-6.9h2.9A9 9 0 0 1 12 21z"/></svg>
+              </button>
+              <button type="button" id="touch-grapple" class="touch-face touch-face-grapple" data-press-skip aria-label="Grappleshot">
+                <svg class="touch-glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 12h7.2l2.1-6.4 2.2 12.2L17.8 12H20v2h-3.4l-1.6 4.8-2.8-15.2L9.8 14H4z"/></svg>
+              </button>
+              <button type="button" id="touch-jump" class="touch-face touch-face-jump" data-press-skip aria-label="Jump">
+                <svg class="touch-glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3.2 4.8 14.5h3.4V20h7.6v-5.5h3.4L12 3.2z"/></svg>
+              </button>
+              <div class="touch-pad-stick touch-pad-right" aria-hidden="true">
+                <div class="touch-pad-base touch-pad-aim" id="touch-pad-aim" data-press-skip>
+                  <span class="touch-pad-ripple" aria-hidden="true">
+                    <span class="touch-pad-ripple-soft"></span>
+                    <span class="touch-pad-ripple-soft touch-pad-ripple-soft-delay"></span>
+                    <span class="touch-pad-ripple-ring"></span>
+                    <span class="touch-pad-ripple-ring touch-pad-ripple-ring-delay"></span>
+                  </span>
+                  <span class="touch-pad-knob" id="touch-pad-aim-knob"></span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div id="pre-match" class="pre-match hidden" aria-live="polite">
@@ -103,15 +151,18 @@
           <p id="lobby-wait-names" class="lobby-wait-names"></p>
           <div class="pre-match-actions">
             <button id="btn-lobby-copy" type="button" title="Copy room code">Copy code</button>
-            <button id="btn-lobby-quit" type="button" class="ghost" title="Leave lobby">Quit</button>
+            <button id="btn-lobby-leave" type="button" class="ghost" title="Leave lobby">Leave</button>
           </div>
         </div>
         <div id="countdown" class="countdown hidden" aria-live="assertive" aria-hidden="true">
           <span id="countdown-num">3</span>
         </div>
-        <aside id="hud-howto-win" class="hud-howto hud-howto-win" aria-label="How to win">
-          <h3>How to win</h3>
-          <ul>
+        <aside id="hud-howto-win" class="hud-howto hud-howto-win is-collapsed" aria-label="How to win">
+          <button type="button" class="hud-howto-toggle" data-howto-toggle aria-expanded="false">
+            <h3>How to win</h3>
+            <span class="hud-howto-chevron" aria-hidden="true"></span>
+          </button>
+          <ul class="hud-howto-body">
             <li>Break bricks with the ball you own</li>
             <li>First to <strong>3</strong> breaks wins the round</li>
             <li>Or most breaks when the <strong>1:00</strong> timer ends</li>
@@ -120,14 +171,20 @@
             <li>First to <strong>2</strong> rounds wins the match</li>
           </ul>
         </aside>
-        <aside id="hud-howto" class="hud-howto" aria-label="How to play">
-          <h3>Controls</h3>
-          <ul>
+        <aside id="hud-howto" class="hud-howto is-collapsed" aria-label="How to play">
+          <button type="button" class="hud-howto-toggle" data-howto-toggle aria-expanded="false">
+            <h3>Controls</h3>
+            <span class="hud-howto-chevron" aria-hidden="true"></span>
+          </button>
+          <ul class="hud-howto-body">
             <li><kbd>WASD</kbd> — move</li>
             <li><kbd>Arrows</kbd> / R-stick — angle (spring)</li>
-            <li><kbd>Space</kbd> / A — jump</li>
-            <li>Jump again mid-air — pound</li>
-            <li><kbd>X</kbd> / RT / LMB — spin (LTTP sweep)</li>
+            <li><kbd>Space</kbd> / A — jump (×3 Odyssey hops)</li>
+            <li>Land — smoke + light hitbox</li>
+            <li>Jump again after 3 hops — pound</li>
+            <li>3rd hop land — slam hitbox</li>
+            <li><kbd>C</kbd>/<kbd>Z</kbd> / <kbd>X</kbd> / RT / LMB — spin</li>
+            <li><kbd>Y</kbd> pad / LT / <kbd>X</kbd> key — Grappleshot</li>
             <li>RMB — snapback stance (aim with cursor)</li>
           </ul>
         </aside>
@@ -139,9 +196,10 @@
           <dl class="controls-map">
             <div><dt>Move</dt><dd>WASD · Left stick · D-pad</dd></div>
             <div><dt>Angle / Snapback</dt><dd>Arrow keys · Right stick · Hold RMB (aim at cursor)</dd></div>
-            <div><dt>Jump</dt><dd>Space · Pad A</dd></div>
-            <div><dt>Ground pound</dt><dd>Jump again while airborne</dd></div>
-            <div><dt>Spin</dt><dd>Hold X · West · RT · LMB (release to fire)</dd></div>
+            <div><dt>Jump</dt><dd>Space · Pad A · triple hop (Odyssey); 4th midair = pound</dd></div>
+            <div><dt>Ground pound</dt><dd>Jump after 3 hops while airborne · 3rd-hop land slam</dd></div>
+            <div><dt>Spin</dt><dd>Hold C/Z · Pad X · RT · LMB (release to fire)</dd></div>
+            <div><dt>Grappleshot</dt><dd>Hold Pad Y · LT (aim with R-stick; release to fire / yank) · Keyboard X</dd></div>
           </dl>
           <label class="controls-toggle">
             <input id="opt-invert-angle" type="checkbox" />
@@ -154,13 +212,23 @@
           <div id="hud-caller" class="ssbm-caller"></div>
           <div id="ready-up" class="ready-up hidden" aria-live="polite">
             <h2>Ready Up</h2>
-            <p id="ready-hint" class="ready-hint">Press A / Space to ready</p>
+            <button
+              id="btn-ready-hold"
+              type="button"
+              class="ready-hold-btn"
+              title="Hold to ready"
+              aria-label="Hold to ready"
+            >
+              <span class="ready-hold-ring" aria-hidden="true"></span>
+              <span class="ready-hold-label">Ready</span>
+            </button>
+            <p id="ready-hint" class="ready-hint">Hold Ready — both players must confirm</p>
             <div class="ready-slots">
-              <div id="ready-p0" class="ready-slot">You — press A / Space</div>
+              <div id="ready-p0" class="ready-slot">You — hold Ready</div>
               <div id="ready-p1" class="ready-slot">Opponent — waiting</div>
             </div>
             <div class="ready-actions results-actions">
-              <button id="btn-ready-menu" type="button" class="ghost" title="Return to match menu">Return to Match Menu</button>
+              <button id="btn-ready-leave" type="button" class="ghost" title="Leave lobby">Leave</button>
               <button id="btn-ready-quit" type="button" class="ghost" title="Quit to Lab">Quit</button>
             </div>
           </div>
@@ -173,8 +241,8 @@
             </div>
             <div class="results-actions">
               <button id="btn-play-again" type="button" class="ui-focus" title="Vote to rematch (CPU auto-ready)">Play Again</button>
-              <button id="btn-results-menu" type="button" class="ghost" title="Return to match menu">Return to Match Menu</button>
-              <button id="btn-quit" type="button" class="ghost" title="Leave match and return to Lab">Quit</button>
+              <button id="btn-results-leave" type="button" class="ghost" title="Leave match">Leave</button>
+              <button id="btn-quit" type="button" class="ghost" title="Quit to Lab">Quit</button>
             </div>
           </div>
         </div>

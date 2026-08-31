@@ -96,6 +96,7 @@ fn default_paddle() -> PaddleState {
         spin_dir_y: 0,
         spin_remain: 0,
         spin_theta: 0,
+        spin_sign: 1,
         jump_was_held: false,
         ground_pounding: false,
         angle: 0,
@@ -104,6 +105,61 @@ fn default_paddle() -> PaddleState {
         snap_aim_y: 0,
         angle_strike: 0,
         jump_peak_z: 0,
+        jump_air_count: 0,
+        grapple_charge: 0,
+        grapple_phase: 0,
+        grapple_was_held: false,
+        grapple_anchor_kind: 0,
+        grapple_anchor_id: 0,
+        grapple_ax: 0,
+        grapple_ay: 0,
+        grapple_length: 0,
+        grapple_dir_x: 0,
+        grapple_dir_y: FP_SCALE,
+        grapple_timer: 0,
+        grapple_rest: 0,
+        prev_move_x: 0,
+        prev_move_y: 0,
+    }
+}
+
+fn lerp_paddle(a: &PaddleState, b: &PaddleState, t: f32) -> PaddleState {
+    PaddleState {
+        x: lerp_i32(a.x, b.x, t),
+        y: lerp_i32(a.y, b.y, t),
+        vx: b.vx,
+        vy: b.vy,
+        jump_z: lerp_i32(a.jump_z, b.jump_z, t),
+        jump_vz: b.jump_vz,
+        spin_charge: b.spin_charge,
+        spin_dir_x: b.spin_dir_x,
+        spin_dir_y: b.spin_dir_y,
+        spin_remain: b.spin_remain,
+        spin_theta: lerp_i32(a.spin_theta, b.spin_theta, t),
+        spin_sign: b.spin_sign,
+        jump_was_held: b.jump_was_held,
+        ground_pounding: b.ground_pounding,
+        angle: lerp_i32(a.angle, b.angle, t),
+        angle_was_held: b.angle_was_held,
+        snap_aim_x: b.snap_aim_x,
+        snap_aim_y: b.snap_aim_y,
+        angle_strike: lerp_i32(a.angle_strike, b.angle_strike, t),
+        jump_peak_z: lerp_i32(a.jump_peak_z, b.jump_peak_z, t),
+        jump_air_count: b.jump_air_count,
+        grapple_charge: b.grapple_charge,
+        grapple_phase: b.grapple_phase,
+        grapple_was_held: b.grapple_was_held,
+        grapple_anchor_kind: b.grapple_anchor_kind,
+        grapple_anchor_id: b.grapple_anchor_id,
+        grapple_ax: lerp_i32(a.grapple_ax, b.grapple_ax, t),
+        grapple_ay: lerp_i32(a.grapple_ay, b.grapple_ay, t),
+        grapple_length: lerp_i32(a.grapple_length, b.grapple_length, t),
+        grapple_dir_x: b.grapple_dir_x,
+        grapple_dir_y: b.grapple_dir_y,
+        grapple_timer: b.grapple_timer,
+        grapple_rest: b.grapple_rest,
+        prev_move_x: b.prev_move_x,
+        prev_move_y: b.prev_move_y,
     }
 }
 
@@ -142,30 +198,6 @@ impl VisualSnapshot {
 
 fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
-}
-
-fn lerp_paddle(a: &PaddleState, b: &PaddleState, t: f32) -> PaddleState {
-    PaddleState {
-        x: lerp_i32(a.x, b.x, t),
-        y: lerp_i32(a.y, b.y, t),
-        vx: b.vx,
-        vy: b.vy,
-        jump_z: lerp_i32(a.jump_z, b.jump_z, t),
-        jump_vz: b.jump_vz,
-        spin_charge: b.spin_charge,
-        spin_dir_x: b.spin_dir_x,
-        spin_dir_y: b.spin_dir_y,
-        spin_remain: b.spin_remain,
-        spin_theta: lerp_i32(a.spin_theta, b.spin_theta, t),
-        jump_was_held: b.jump_was_held,
-        ground_pounding: b.ground_pounding,
-        angle: lerp_i32(a.angle, b.angle, t),
-        angle_was_held: b.angle_was_held,
-        snap_aim_x: b.snap_aim_x,
-        snap_aim_y: b.snap_aim_y,
-        angle_strike: lerp_i32(a.angle_strike, b.angle_strike, t),
-        jump_peak_z: lerp_i32(a.jump_peak_z, b.jump_peak_z, t),
-    }
 }
 
 fn lerp_i32(a: i32, b: i32, t: f32) -> i32 {

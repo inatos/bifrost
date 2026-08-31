@@ -70,6 +70,8 @@ pub(crate) enum ArenaPart {
     CornerRamp(u8),
     /// Snapback force-wave projectile (synced from sim).
     AngleWave,
+    /// Grappleshot tether segment (player 0 / 1).
+    GrappleLine(u8),
 }
 
 pub fn plugin(app: &mut App) {
@@ -472,6 +474,19 @@ fn spawn_paddles_and_ball(commands: &mut Commands, assets: &ArenaAssets, snap: &
         Visibility::Hidden,
         ArenaPart::AngleWave,
     ));
+    for player in 0u8..2 {
+        let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+        commands.spawn((
+            Sprite {
+                color: color.with_alpha(0.0),
+                custom_size: Some(Vec2::new(8.0, 4.0)),
+                ..default()
+            },
+            Transform::from_xyz(0.0, 0.0, 2.35),
+            Visibility::Hidden,
+            ArenaPart::GrappleLine(player),
+        ));
+    }
 }
 
 fn spawn_labels_and_scores(commands: &mut Commands, assets: &ArenaAssets, bot_match: bool) {
@@ -715,6 +730,46 @@ fn sync_arena_visuals(
                 // Filled slab removed — VFX comes from juice crescent trails.
                 if let Some(mut v) = vis {
                     *v = Visibility::Hidden;
+                }
+            }
+            ArenaPart::GrappleLine(player) => {
+                let p = snap.paddles[player as usize];
+                let charging = p.grapple_phase == 0 && p.grapple_charge > 0;
+                let tethered = p.grapple_phase != 0;
+                if let Some(mut v) = vis {
+                    *v = if charging || tethered {
+                        Visibility::Visible
+                    } else {
+                        Visibility::Hidden
+                    };
+                }
+                if charging || tethered {
+                    let (px, py, _) = snap.paddle_world(player as usize);
+                    let (ax, ay) = if charging {
+                        let reach = 70.0 + (p.grapple_charge as f32 / 90.0) * 210.0;
+                        (
+                            px + p.grapple_dir_x as f32 / FP_SCALE as f32 * reach,
+                            py + p.grapple_dir_y as f32 / FP_SCALE as f32 * reach,
+                        )
+                    } else {
+                        (
+                            p.grapple_ax as f32 / FP_SCALE as f32,
+                            p.grapple_ay as f32 / FP_SCALE as f32,
+                        )
+                    };
+                    let dx = ax - px;
+                    let dy = ay - py;
+                    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+                    let angle = dy.atan2(dx);
+                    transform.translation = Vec3::new(px + dx * 0.5, py + dy * 0.5, 2.35);
+                    transform.rotation = Quat::from_rotation_z(angle);
+                    transform.scale = Vec3::ONE;
+                    if let Some(mut sprite) = sprite {
+                        let base = if player == 0 { P1_COLOR } else { P2_COLOR };
+                        let a = if charging { 0.35 } else { 0.85 };
+                        sprite.color = base.with_alpha(a);
+                        sprite.custom_size = Some(Vec2::new(len, if charging { 3.0 } else { 5.0 }));
+                    }
                 }
             }
             ArenaPart::Brick(index)

@@ -292,3 +292,117 @@ fn paddle_shove_launches_wild_brick() {
         "tier-1 wild should receive shove velocity"
     );
 }
+
+#[test]
+fn corner_trampoline_preserves_and_boosts_inbound_momentum() {
+    use crate::collision::resolve_body_corner_arcs;
+    use crate::rules::{
+        ARENA_H, ARENA_W, BALL_R, CORNER_R, CORNER_WALL_KNOCK, WALL, WILD_BRICK_HALF,
+    };
+
+    let edge_x = ARENA_W / 2 - WALL;
+    let edge_y = ARENA_H / 2 - WALL;
+    let r = CORNER_R;
+    let cx = -edge_x + r;
+    let cy = -edge_y + r;
+    let max_dist = r - BALL_R;
+    // Deep in the BL pocket (outside the playable arc).
+    let mut x = cx - max_dist - 4 * FP_SCALE;
+    let mut y = cy - max_dist - 4 * FP_SCALE;
+    let inbound = 20 * FP_SCALE;
+    let mut vx = -inbound;
+    let mut vy = -inbound;
+    let before = ((vx as i64) * (vx as i64) + (vy as i64) * (vy as i64)) as i128;
+    let hit = resolve_body_corner_arcs(
+        &mut x,
+        &mut y,
+        &mut vx,
+        &mut vy,
+        BALL_R,
+        CORNER_WALL_KNOCK,
+        0,
+    );
+    assert_eq!(hit, Some(0));
+    let after = ((vx as i64) * (vx as i64) + (vy as i64) * (vy as i64)) as i128;
+    assert!(
+        after > before,
+        "trampoline should boost speed: before={before} after={after} vel=({vx},{vy})"
+    );
+    // Outward into play from BL → +x/+y dominant.
+    assert!(vx > 0 && vy > 0, "bounce should leave toward midcourt");
+
+    // Wild brick radius also trampolines.
+    let max_w = r - WILD_BRICK_HALF;
+    let mut wx = cx - max_w - 3 * FP_SCALE;
+    let mut wy = cy - max_w - 3 * FP_SCALE;
+    let mut wvx = -15 * FP_SCALE;
+    let mut wvy = -15 * FP_SCALE;
+    let w_before = (wvx as i64).abs() + (wvy as i64).abs();
+    assert!(
+        resolve_body_corner_arcs(
+            &mut wx,
+            &mut wy,
+            &mut wvx,
+            &mut wvy,
+            WILD_BRICK_HALF,
+            crate::rules::CORNER_PADDLE_KNOCK,
+            0,
+        )
+        .is_some()
+    );
+    let w_after = (wvx as i64).abs() + (wvy as i64).abs();
+    assert!(w_after > w_before, "wild brick trampoline should boost");
+}
+
+#[test]
+fn paddle_corner_reflects_inbound_velocity() {
+    use crate::collision::resolve_body_corner_arcs;
+    use crate::rules::{
+        ARENA_H, ARENA_W, CORNER_PADDLE_KNOCK, CORNER_R, CORNER_TANGENT_KICK, PADDLE_H, PADDLE_W,
+        WALL,
+    };
+
+    let edge_x = ARENA_W / 2 - WALL;
+    let edge_y = ARENA_H / 2 - WALL;
+    let r = CORNER_R;
+    let cx = -edge_x + r;
+    let cy = -edge_y + r;
+    let body_r = (PADDLE_W / 4).max(PADDLE_H);
+    let max_dist = r - body_r;
+    let mut x = cx - max_dist - 2 * FP_SCALE;
+    let mut y = cy - max_dist - 2 * FP_SCALE;
+    let mut vx = -12 * FP_SCALE;
+    let mut vy = -12 * FP_SCALE;
+    assert!(
+        resolve_body_corner_arcs(
+            &mut x,
+            &mut y,
+            &mut vx,
+            &mut vy,
+            body_r,
+            CORNER_PADDLE_KNOCK,
+            CORNER_TANGENT_KICK / 2,
+        )
+        .is_some()
+    );
+    assert!(vx > 0 && vy > 0, "paddle should bounce out of the corner");
+}
+
+#[test]
+fn match_over_rematch_votes_return_to_readying() {
+    use crate::input::INPUT_JUMP;
+    let mut state = new_match(41);
+    state.phase = crate::MatchPhase::MatchOver;
+    state.rounds_won = [2, 0];
+    state.ready = [false, false];
+    let _ = step(
+        &mut state,
+        FrameInput {
+            p0: INPUT_JUMP,
+            p1: INPUT_JUMP,
+        },
+    );
+    assert_eq!(state.phase, crate::MatchPhase::Readying);
+    assert_eq!(state.rounds_won, [0, 0]);
+    assert_eq!(state.ready, [false, false]);
+}

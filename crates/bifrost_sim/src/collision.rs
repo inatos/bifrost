@@ -3,9 +3,9 @@ use crate::fixed::{FP_SCALE, Vec2, isqrt};
 use crate::paddle_geom::{bounce_ball_off_paddle, circle_hits_paddle, paddle_airborne};
 use crate::rules::{
     ARENA_H, ARENA_W, BALL_HIT_KNOCK_DEN, BALL_HIT_KNOCK_NUM, BALL_MAX_SPEED, BALL_R, BALL_SPEED,
-    BRICK_COUNT, BRICK_H, BRICK_W, CORNER_R, CORNER_TANGENT_KICK, CORNER_WALL_KNOCK, GOAL_DEPTH,
-    OWNER_NEUTRAL, PADDLE_KNOCK_MAX, WALL, WALL_KNOCK, WILD_BALL_KNOCK, WILD_BRICK_HALF,
-    WorldState,
+    BRICK_COUNT, BRICK_H, BRICK_W, CORNER_R, CORNER_TANGENT_KICK, CORNER_TRAMPOLINE_GAIN,
+    CORNER_WALL_KNOCK, GOAL_DEPTH, OWNER_NEUTRAL, PADDLE_KNOCK_MAX, WALL, WALL_KNOCK,
+    WILD_BALL_KNOCK, WILD_BRICK_HALF, WorldState,
 };
 use crate::wild_bricks::circle_hits_wild;
 
@@ -40,6 +40,7 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
 
         if let Some(corner) = resolve_corner_arcs(&mut pos, &mut vel) {
             events.push(ConfirmedEvent::CornerBounce { corner });
+            events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
         }
 
         let bound_x = ARENA_W / 2 - WALL - BALL_R;
@@ -47,9 +48,11 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
             if pos.x < -bound_x {
                 pos.x = -bound_x;
                 bounce_off_wall(&mut vel, -1, 0, BALL_SPEED);
+                events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
             } else if pos.x > bound_x {
                 pos.x = bound_x;
                 bounce_off_wall(&mut vel, 1, 0, BALL_SPEED);
+                events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
             }
         }
 
@@ -82,6 +85,7 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
                 events.push(ConfirmedEvent::PaddleHit {
                     player: player as u8,
                 });
+                events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
             }
         }
 
@@ -128,6 +132,7 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
                         });
                     }
                 }
+                events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
                 break;
             }
         }
@@ -160,6 +165,7 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
                     events.push(ConfirmedEvent::WildBrickHit { slot: wi as u8 });
                 }
                 events.push(ConfirmedEvent::WildBallBurst { slot: wi as u8 });
+                events.push(ConfirmedEvent::DustImpact { x: pos.x, y: pos.y });
                 if state.ball.owner != OWNER_NEUTRAL {
                     state.ball.owner = OWNER_NEUTRAL;
                     events.push(ConfirmedEvent::BallNeutralized);
@@ -190,11 +196,37 @@ pub fn advance_ball(state: &mut WorldState) -> Vec<ConfirmedEvent> {
 /// Ball rides the inside of the arc (rounded-rectangle corner).
 /// Returns the corner index (0..=3) when a bounce was applied.
 fn resolve_corner_arcs(pos: &mut Vec2, vel: &mut Vec2) -> Option<u8> {
+    let hit = resolve_body_corner_arcs(
+        &mut pos.x,
+        &mut pos.y,
+        &mut vel.x,
+        &mut vel.y,
+        BALL_R,
+        CORNER_WALL_KNOCK,
+        CORNER_TANGENT_KICK,
+    );
+    if hit.is_some() {
+        enforce_ball_speed(vel);
+    }
+    hit
+}
+
+/// Corner trampoline for any circular body (ball, paddle approx, wild brick).
+/// Reflects inbound normal momentum, then adds `base_knock + inbound * GAIN`.
+pub(crate) fn resolve_body_corner_arcs(
+    pos_x: &mut i32,
+    pos_y: &mut i32,
+    vel_x: &mut i32,
+    vel_y: &mut i32,
+    body_r: i32,
+    base_knock: i32,
+    tangent_kick: i32,
+) -> Option<u8> {
     let edge_x = ARENA_W / 2 - WALL;
     let edge_y = ARENA_H / 2 - WALL;
     let r = CORNER_R;
-    // Playable side of the arc: ball center stays at dist <= r - BALL_R from C.
-    let max_dist = r - BALL_R;
+    // Playable side of the arc: body center stays at dist <= r - body_r from C.
+    let max_dist = r - body_r;
     if max_dist <= 0 {
         return None;
     }
@@ -207,14 +239,14 @@ fn resolve_corner_arcs(pos: &mut Vec2, vel: &mut Vec2) -> Option<u8> {
     let max_sq = (max_dist as i64) * (max_dist as i64);
     for (idx, (cx, cy, ox, oy)) in corners.into_iter().enumerate() {
         // Outer corner pocket (toward the wall tip) — where the arch lives.
-        if (ox < 0 && pos.x > cx) || (ox > 0 && pos.x < cx) {
+        if (ox < 0 && *pos_x > cx) || (ox > 0 && *pos_x < cx) {
             continue;
         }
-        if (oy < 0 && pos.y > cy) || (oy > 0 && pos.y < cy) {
+        if (oy < 0 && *pos_y > cy) || (oy > 0 && *pos_y < cy) {
             continue;
         }
-        let dx = pos.x - cx;
-        let dy = pos.y - cy;
+        let dx = *pos_x - cx;
+        let dy = *pos_y - cy;
         let dist_sq = (dx as i64) * (dx as i64) + (dy as i64) * (dy as i64);
         if dist_sq == 0 || dist_sq <= max_sq {
             continue;
@@ -223,29 +255,33 @@ fn resolve_corner_arcs(pos: &mut Vec2, vel: &mut Vec2) -> Option<u8> {
         // Inward (into play) unit from wall: toward C.
         let nx = -((dx as i64 * FP_SCALE as i64) / dist) as i32;
         let ny = -((dy as i64 * FP_SCALE as i64) / dist) as i32;
-        pos.x = cx + ((dx as i64 * max_dist as i64) / dist) as i32;
-        pos.y = cy + ((dy as i64 * max_dist as i64) / dist) as i32;
-        let dot = (vel.x as i64 * nx as i64 + vel.y as i64 * ny as i64) / FP_SCALE as i64;
+        *pos_x = cx + ((dx as i64 * max_dist as i64) / dist) as i32;
+        *pos_y = cy + ((dy as i64 * max_dist as i64) / dist) as i32;
+        let dot = (*vel_x as i64 * nx as i64 + *vel_y as i64 * ny as i64) / FP_SCALE as i64;
+        let inbound = if dot < 0 { (-dot) as i32 } else { 0 };
         if dot < 0 {
-            vel.x -= ((2 * dot * nx as i64) / FP_SCALE as i64) as i32;
-            vel.y -= ((2 * dot * ny as i64) / FP_SCALE as i64) as i32;
+            *vel_x -= ((2 * dot * nx as i64) / FP_SCALE as i64) as i32;
+            *vel_y -= ((2 * dot * ny as i64) / FP_SCALE as i64) as i32;
         }
-        vel.x += ((nx as i64 * CORNER_WALL_KNOCK as i64) / FP_SCALE as i64) as i32;
-        vel.y += ((ny as i64 * CORNER_WALL_KNOCK as i64) / FP_SCALE as i64) as i32;
-        let tx = -ny;
-        let ty = nx;
-        let tdot = vel.x as i64 * tx as i64 + vel.y as i64 * ty as i64;
-        let (tx, ty) = if tdot >= 0 { (tx, ty) } else { (-tx, -ty) };
-        vel.x += ((tx as i64 * CORNER_TANGENT_KICK as i64) / FP_SCALE as i64) as i32;
-        vel.y += ((ty as i64 * CORNER_TANGENT_KICK as i64) / FP_SCALE as i64) as i32;
-        enforce_ball_speed(vel);
+        let boost = base_knock
+            + ((inbound as i64 * CORNER_TRAMPOLINE_GAIN as i64) / FP_SCALE as i64) as i32;
+        *vel_x += ((nx as i64 * boost as i64) / FP_SCALE as i64) as i32;
+        *vel_y += ((ny as i64 * boost as i64) / FP_SCALE as i64) as i32;
+        if tangent_kick != 0 {
+            let tx = -ny;
+            let ty = nx;
+            let tdot = *vel_x as i64 * tx as i64 + *vel_y as i64 * ty as i64;
+            let (tx, ty) = if tdot >= 0 { (tx, ty) } else { (-tx, -ty) };
+            *vel_x += ((tx as i64 * tangent_kick as i64) / FP_SCALE as i64) as i32;
+            *vel_y += ((ty as i64 * tangent_kick as i64) / FP_SCALE as i64) as i32;
+        }
         return Some(idx as u8);
     }
     None
 }
 
-/// True when the ball is in a corner arch pocket (skip flat wall clamps there).
-fn in_corner_arch_zone(pos: Vec2) -> bool {
+/// True when the body center is in a corner arch pocket (skip flat wall clamps there).
+pub(crate) fn in_corner_arch_zone(pos: Vec2) -> bool {
     let edge_x = ARENA_W / 2 - WALL;
     let edge_y = ARENA_H / 2 - WALL;
     let r = CORNER_R;

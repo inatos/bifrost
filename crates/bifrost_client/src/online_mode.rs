@@ -5,7 +5,7 @@ use std::time::Duration;
 use bevy::input::gamepad::Gamepad;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy_ggrs::ggrs::{DesyncDetection, GgrsEvent, SessionBuilder};
+use bevy_ggrs::ggrs::{DesyncDetection, GgrsEvent, PlayerType, SessionBuilder};
 use bevy_ggrs::prelude::*;
 use bevy_ggrs::{LocalInputs, LocalPlayers};
 use bevy_matchbox::prelude::*;
@@ -204,9 +204,26 @@ fn lobby_system(
         .with_fps(FPS)
         .expect("GGRS fps");
 
-    for (i, player) in players.into_iter().enumerate() {
+    for player in players {
+        let handle = match player {
+            PlayerType::Local => {
+                if config.args.is_host {
+                    0
+                } else {
+                    1
+                }
+            }
+            PlayerType::Remote(_) => {
+                if config.args.is_host {
+                    1
+                } else {
+                    0
+                }
+            }
+            PlayerType::Spectator(_) => continue,
+        };
         builder = builder
-            .add_player(player, i)
+            .add_player(player, handle)
             .expect("failed to add GGRS player");
     }
 
@@ -262,14 +279,30 @@ fn read_local_inputs(
             spin_dir_y: 0,
             spin_remain: 0,
             spin_theta: 0,
+            spin_sign: 1,
             jump_was_held: false,
             ground_pounding: false,
             angle: 0,
             angle_was_held: false,
             angle_strike: 0,
             jump_peak_z: 0,
+            jump_air_count: 0,
             snap_aim_x: 0,
             snap_aim_y: 0,
+            grapple_charge: 0,
+            grapple_phase: 0,
+            grapple_was_held: false,
+            grapple_anchor_kind: 0,
+            grapple_anchor_id: 0,
+            grapple_ax: 0,
+            grapple_ay: 0,
+            grapple_length: 0,
+            grapple_dir_x: 0,
+            grapple_dir_y: bifrost_sim::FP_SCALE,
+            grapple_timer: 0,
+            grapple_rest: 0,
+            prev_move_x: 0,
+            prev_move_y: 0,
         });
     // Prefer visual anchor so rollback / input-delay does not thrash mouse chase.
     let (aim_x, aim_y) = anchor
@@ -292,9 +325,6 @@ fn ggrs_step(
     mut sim: ResMut<SimSnapshot>,
     mut last: Local<i32>,
 ) {
-    if world.0.phase == MatchPhase::MatchOver {
-        return;
-    }
     let p0 = inputs[0].0.mask;
     let p1 = inputs[1].0.mask;
     let out = step(&mut world.0, FrameInput { p0, p1 });

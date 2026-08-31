@@ -35,14 +35,14 @@ pub struct BotState {
     pub flank_sign: i8,
     pub jump_cd: u32,
     pub escape_jumped: bool,
-    /// Idle frames after faceoff (~1s) so the bot doesn't cheat the drop.
+    /// Idle frames after faceoff (~0.5s) so the bot doesn't cheat the drop.
     pub post_serve_idle: u32,
 }
 
-/// Hold still for one second after the ball drops.
-const POST_SERVE_IDLE_FRAMES: u32 = 60;
+/// Hold still ~0.5s @ 60Hz after the ball drops (was 60 / ~1s).
+const POST_SERVE_IDLE_FRAMES: u32 = 30;
 
-pub fn choose_input(state: &WorldState, bot: &mut BotState, player: usize, cfg: BotConfig) -> u8 {
+pub fn choose_input(state: &WorldState, bot: &mut BotState, player: usize, cfg: BotConfig) -> u16 {
     if bot.jump_cd > 0 {
         bot.jump_cd -= 1;
     }
@@ -53,7 +53,8 @@ pub fn choose_input(state: &WorldState, bot: &mut BotState, player: usize, cfg: 
         bot.escape_phase = 0;
         bot.escape_jumped = false;
         bot.post_serve_idle = 0;
-        return 0;
+        // Auto-vote rematch so Play Again only needs the human seat.
+        return INPUT_JUMP;
     }
     // Don't move during serve countdown — player gets a fair look.
     if state.phase == MatchPhase::Serving {
@@ -99,7 +100,7 @@ pub fn choose_input(state: &WorldState, bot: &mut BotState, player: usize, cfg: 
     mask
 }
 
-fn escape_maneuver(state: &WorldState, bot: &mut BotState, player: usize) -> u8 {
+fn escape_maneuver(state: &WorldState, bot: &mut BotState, player: usize) -> u16 {
     let paddle = state.paddles[player];
     let ball = state.ball.pos;
 
@@ -191,7 +192,7 @@ fn steer_toward(
     player: usize,
     target_x: i32,
     target_y: i32,
-) -> u8 {
+) -> u16 {
     let paddle = state.paddles[player];
     let mut mask = steer_move(paddle, target_x, target_y);
     if should_jump(state, player, target_x) {
@@ -200,12 +201,12 @@ fn steer_toward(
     mask
 }
 
-fn steer_move(paddle: PaddleState, target_x: i32, target_y: i32) -> u8 {
+fn steer_move(paddle: PaddleState, target_x: i32, target_y: i32) -> u16 {
     let dx = target_x - paddle.x;
     let dy = target_y - paddle.y;
     let threshold_x = PADDLE_W / 10;
     let threshold_y = PADDLE_H / 3;
-    let mut mask = 0u8;
+    let mut mask = 0u16;
     if dx > threshold_x {
         mask |= INPUT_RIGHT;
     } else if dx < -threshold_x {
@@ -219,7 +220,7 @@ fn steer_move(paddle: PaddleState, target_x: i32, target_y: i32) -> u8 {
     mask
 }
 
-fn try_jump(bot: &mut BotState, mask: u8) -> u8 {
+fn try_jump(bot: &mut BotState, mask: u16) -> u16 {
     if bot.jump_cd > 0 {
         return mask;
     }

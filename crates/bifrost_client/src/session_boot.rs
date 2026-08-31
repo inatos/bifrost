@@ -20,6 +20,7 @@ enum PendingSession {
         turn_urls: Vec<String>,
         turn_username: String,
         turn_credential: String,
+        is_host: bool,
     },
     /// Tear down GGRS/Matchbox and return to idle bot board.
     Leave,
@@ -47,6 +48,7 @@ mod wasm_exports {
         turn_urls: Option<Vec<String>>,
         turn_username: Option<String>,
         turn_credential: Option<String>,
+        is_host: Option<bool>,
     ) {
         *PENDING.lock().expect("session lock") = Some(PendingSession::Online {
             room,
@@ -54,6 +56,7 @@ mod wasm_exports {
             turn_urls: turn_urls.unwrap_or_default(),
             turn_username: turn_username.unwrap_or_default(),
             turn_credential: turn_credential.unwrap_or_default(),
+            is_host: is_host.unwrap_or(true),
         });
     }
 
@@ -100,6 +103,7 @@ fn apply_pending_session(
             config.args.turn_urls.clear();
             config.args.turn_username = None;
             config.args.turn_credential = None;
+            config.args.is_host = true;
             config.args.bot = true;
             reset_bot_world(&mut sim, &mut interp, &mut bot);
             if state.get() == &AppState::InGame {
@@ -115,6 +119,7 @@ fn apply_pending_session(
             config.args.turn_urls.clear();
             config.args.turn_username = None;
             config.args.turn_credential = None;
+            config.args.is_host = true;
             config.args.bot = false;
             // Drop online session resources so RollbackWorld cannot overwrite Readying.
             commands.remove_resource::<bevy_ggrs::Session<crate::online_mode::BifrostConfig>>();
@@ -130,6 +135,7 @@ fn apply_pending_session(
             turn_urls,
             turn_username,
             turn_credential,
+            is_host,
         }) => {
             // Page-origin Matchbox URL — never leave the clap default :3536.
             #[cfg(target_arch = "wasm32")]
@@ -149,6 +155,7 @@ fn apply_pending_session(
             } else {
                 Some(turn_credential)
             };
+            config.args.is_host = is_host;
             config.args.bot = false;
             if state.get() == &AppState::Lobby {
                 // Force OnEnter(Lobby) to rebuild the Matchbox socket.

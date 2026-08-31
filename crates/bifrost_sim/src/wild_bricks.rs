@@ -4,7 +4,8 @@
 use crate::fixed::FP_SCALE;
 use crate::fixed::Vec2;
 use crate::rules::{
-    ARENA_H, ARENA_W, WALL, WALL_KNOCK, WILD_BRICK_HALF, WILD_SPAWN_COOLDOWN, WorldState,
+    ARENA_H, ARENA_W, CORNER_PADDLE_KNOCK, WALL, WALL_KNOCK, WILD_BRICK_HALF, WILD_SPAWN_COOLDOWN,
+    WorldState,
 };
 
 const COAST_NUM: i32 = 96;
@@ -12,7 +13,7 @@ const COAST_DEN: i32 = 100;
 const WANDER_SPEED_CAP: i32 = 3 * FP_SCALE;
 const BALL_PULL: i32 = FP_SCALE / 5;
 
-pub fn tick_wild(state: &mut WorldState) {
+pub fn tick_wild(state: &mut WorldState) -> Option<u8> {
     if state.wild_spawn_cd > 0 {
         state.wild_spawn_cd -= 1;
     } else if state.frame % 90 == 0 && rand_pct(state) < 45 {
@@ -28,6 +29,7 @@ pub fn tick_wild(state: &mut WorldState) {
     let bound_y = ARENA_H / 2 - WALL - WILD_BRICK_HALF;
     let bx = state.ball.pos.x;
     let by = state.ball.pos.y;
+    let mut corner_hit = None;
     for w in &mut state.wild_bricks {
         if !w.active {
             continue;
@@ -50,23 +52,38 @@ pub fn tick_wild(state: &mut WorldState) {
         }
         w.x += w.vx;
         w.y += w.vy;
-        if w.x <= -bound_x {
-            w.x = -bound_x;
-            w.vx = w.vx.unsigned_abs().max(WALL_KNOCK as u32) as i32;
-        } else if w.x >= bound_x {
-            w.x = bound_x;
-            w.vx = -(w.vx.unsigned_abs().max(WALL_KNOCK as u32) as i32);
+        if let Some(corner) = crate::collision::resolve_body_corner_arcs(
+            &mut w.x,
+            &mut w.y,
+            &mut w.vx,
+            &mut w.vy,
+            WILD_BRICK_HALF,
+            CORNER_PADDLE_KNOCK,
+            0,
+        ) {
+            corner_hit = Some(corner);
         }
-        if w.y <= -bound_y {
-            w.y = -bound_y;
-            w.vy = w.vy.unsigned_abs().max(WALL_KNOCK as u32) as i32;
-        } else if w.y >= bound_y {
-            w.y = bound_y;
-            w.vy = -(w.vy.unsigned_abs().max(WALL_KNOCK as u32) as i32);
+        let in_corner = crate::collision::in_corner_arch_zone(Vec2::new(w.x, w.y));
+        if !in_corner {
+            if w.x <= -bound_x {
+                w.x = -bound_x;
+                w.vx = w.vx.unsigned_abs().max(WALL_KNOCK as u32) as i32;
+            } else if w.x >= bound_x {
+                w.x = bound_x;
+                w.vx = -(w.vx.unsigned_abs().max(WALL_KNOCK as u32) as i32);
+            }
+            if w.y <= -bound_y {
+                w.y = -bound_y;
+                w.vy = w.vy.unsigned_abs().max(WALL_KNOCK as u32) as i32;
+            } else if w.y >= bound_y {
+                w.y = bound_y;
+                w.vy = -(w.vy.unsigned_abs().max(WALL_KNOCK as u32) as i32);
+            }
         }
         w.x = w.x.clamp(-bound_x, bound_x);
         w.y = w.y.clamp(-bound_y, bound_y);
     }
+    corner_hit
 }
 
 fn try_spawn(state: &mut WorldState) -> bool {

@@ -7,19 +7,31 @@ use crate::rules::{PADDLE_H, PADDLE_W, PaddleState};
 
 /// Narrow width at the backboard edge; full width toward arena center.
 pub const PADDLE_W_BACK: i32 = PADDLE_W * 7 / 10;
-/// Mario-like arc — readable hang + strong visual scale at apex.
-pub const JUMP_INITIAL_V: i32 = 30 * FP_SCALE;
-pub const JUMP_GRAVITY: i32 = 16 * FP_SCALE / 10;
+/// Mario-like arc — Odyssey hops; less floaty than SM64.
+pub const JUMP_INITIAL_V: i32 = 28 * FP_SCALE;
+/// Second hop (slightly higher).
+pub const JUMP_SECOND_V: i32 = 34 * FP_SCALE;
+/// Third hop (highest).
+pub const JUMP_THIRD_V: i32 = 40 * FP_SCALE;
+pub const JUMP_GRAVITY: i32 = 22 * FP_SCALE / 10;
 pub const JUMP_CLEAR_Z: i32 = 8 * FP_SCALE;
-pub const MAX_JUMP_Z: i32 = 42 * FP_SCALE;
+pub const MAX_JUMP_Z: i32 = 48 * FP_SCALE;
 
 pub fn paddle_airborne(p: &PaddleState) -> bool {
     p.jump_z > JUMP_CLEAR_Z
 }
 
-/// Diegetic tech: pound anytime while airborne (SM64-style). Higher = stronger.
+/// Pound only after the triple-jump chain is spent (or mid-dive).
 pub fn can_ground_pound(p: &PaddleState) -> bool {
-    !p.ground_pounding && p.jump_z > 0
+    !p.ground_pounding && p.jump_z > 0 && p.jump_air_count >= 3
+}
+
+pub fn jump_impulse_for_hop(hop: u8) -> i32 {
+    match hop {
+        1 => JUMP_INITIAL_V,
+        2 => JUMP_SECOND_V,
+        _ => JUMP_THIRD_V,
+    }
 }
 
 pub fn jump_scale_fixed(z: i32) -> i32 {

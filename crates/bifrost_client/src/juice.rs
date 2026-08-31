@@ -127,9 +127,20 @@ fn drain_confirmed_events(
                 burst(&mut commands, origin, Color::srgb(0.62, 0.4, 0.9), 8, 160.0);
                 // Visual only — often stacks with brick/wild hit.
             }
-            ConfirmedEvent::CornerBounce { corner: _ } => {
-                juice.shake = juice.shake.max(0.12);
-                try_play_sfx(&mut juice, "corner", 0.35);
+            ConfirmedEvent::CornerBounce { corner } => {
+                juice.shake = juice.shake.max(0.55);
+                juice.flash = juice.flash.max(0.4);
+                juice.hitstop = juice.hitstop.max(0.05);
+                let tint = match corner % 4 {
+                    0 => Color::srgb(1.0, 0.72, 0.28),
+                    1 => Color::srgb(0.35, 0.95, 1.0),
+                    2 => Color::srgb(1.0, 0.45, 0.85),
+                    _ => Color::srgb(0.55, 1.0, 0.45),
+                };
+                burst(&mut commands, origin, tint, 18, 280.0);
+                ring_burst(&mut commands, origin, tint, 12, 220.0);
+                try_play_sfx(&mut juice, "corner", 0.72);
+                try_haptic("corner");
             }
             ConfirmedEvent::PaddleHit { player } => {
                 juice.shake = juice.shake.max(0.28);
@@ -220,6 +231,55 @@ fn drain_confirmed_events(
                 try_play_sfx(&mut juice, "pound", 0.9);
                 try_haptic("break");
             }
+            ConfirmedEvent::JumpLand { player, hop, x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                juice.shake = juice.shake.max(0.18 + hop as f32 * 0.06);
+                // Soft smoke puff on every hop land.
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgb(0.62, 0.62, 0.66),
+                    6 + hop as usize * 2,
+                    110.0 + hop as f32 * 20.0,
+                );
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgba(0.75, 0.75, 0.8, 0.55),
+                    4,
+                    80.0,
+                );
+                ring_burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgba(0.7, 0.72, 0.78, 0.45),
+                    10 + hop as usize * 2,
+                    140.0 + hop as f32 * 18.0,
+                );
+                try_play_sfx(&mut juice, "tick", 0.22 + hop as f32 * 0.06);
+                if player == 0 {
+                    try_haptic("chip");
+                }
+            }
+            ConfirmedEvent::TripleLand { player, x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+                juice.shake = juice.shake.max(0.85);
+                juice.flash = juice.flash.max(0.5);
+                juice.hitstop = juice.hitstop.max(0.06);
+                ring_burst(&mut commands, Vec2::new(wx, wy), color, 28, 360.0);
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgb(1.0, 0.92, 0.55),
+                    16,
+                    280.0,
+                );
+                try_play_sfx(&mut juice, "pound", 0.75);
+                if player == 0 {
+                    try_haptic("break");
+                }
+            }
             ConfirmedEvent::CornerPulse { corner: _, x, y } => {
                 let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
                 juice.shake = juice.shake.max(0.7);
@@ -294,6 +354,147 @@ fn drain_confirmed_events(
                 if player == 0 {
                     try_haptic("paddle");
                 }
+            }
+            ConfirmedEvent::GrappleFire { player, charge } => {
+                let paddle = sim.world.paddles[player as usize];
+                let (px, py) = bifrost_sim::Vec2::new(paddle.x, paddle.y).to_f();
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+                let power = 0.35 + charge as f32 / 140.0;
+                juice.shake = juice.shake.max(0.22 + power * 0.2);
+                sword_beam_burst(
+                    &mut commands,
+                    Vec2::new(px, py),
+                    Vec2::new(
+                        paddle.grapple_dir_x as f32 / bifrost_sim::FP_SCALE as f32,
+                        paddle.grapple_dir_y as f32 / bifrost_sim::FP_SCALE as f32,
+                    ),
+                    color,
+                    4,
+                    260.0 + charge as f32 * 1.5,
+                    power,
+                );
+                try_play_sfx(&mut juice, "grapple", 0.4 + charge as f32 / 200.0);
+                if player == 0 {
+                    try_haptic("grapple");
+                }
+            }
+            ConfirmedEvent::GrappleAttach { player, x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+                juice.shake = juice.shake.max(0.3);
+                ring_burst(&mut commands, Vec2::new(wx, wy), color, 12, 200.0);
+                try_play_sfx(&mut juice, "grapple", 0.55);
+                if player == 0 {
+                    try_haptic("grapple");
+                }
+            }
+            ConfirmedEvent::GrappleYank {
+                player,
+                charge,
+                x,
+                y,
+            } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+                juice.shake = juice.shake.max(0.85 + charge as f32 / 120.0);
+                juice.flash = juice.flash.max(0.45);
+                juice.hitstop = juice.hitstop.max(0.05);
+                ring_burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    color,
+                    22 + (charge as usize / 8),
+                    340.0 + charge as f32 * 2.0,
+                );
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgb(0.55, 0.55, 0.58),
+                    12 + (charge as usize / 10),
+                    200.0,
+                );
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    color.with_alpha(0.7),
+                    14,
+                    260.0,
+                );
+                try_play_sfx(&mut juice, "grapple", 0.75 + charge as f32 / 140.0);
+                if player == 0 {
+                    try_haptic("grapple");
+                }
+            }
+            ConfirmedEvent::GrappleBreak { player, x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                juice.shake = juice.shake.max(0.45);
+                juice.flash = juice.flash.max(0.2);
+                ring_burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgb(0.95, 0.85, 0.45),
+                    16,
+                    260.0,
+                );
+                try_play_sfx(&mut juice, "paddle", 0.75);
+                if player == 0 {
+                    try_haptic("shove");
+                }
+            }
+            ConfirmedEvent::GrappleSling { player, x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                let color = if player == 0 { P1_COLOR } else { P2_COLOR };
+                juice.shake = juice.shake.max(0.55);
+                juice.flash = juice.flash.max(0.28);
+                ring_burst(&mut commands, Vec2::new(wx, wy), color, 18, 300.0);
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgb(0.85, 0.88, 0.95),
+                    10,
+                    160.0,
+                );
+                try_play_sfx(&mut juice, "pound", 0.55);
+                if player == 0 {
+                    try_haptic("break");
+                }
+            }
+            ConfirmedEvent::DustSkid { x, y, dir_x, dir_y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                let (dx, dy) = bifrost_sim::Vec2::new(dir_x, dir_y).to_f();
+                let len = (dx * dx + dy * dy).sqrt().max(0.001);
+                let nx = dx / len;
+                let ny = dy / len;
+                // Skid fans opposite pivot / along spray dir.
+                for i in 0..7 {
+                    let spread = (i as f32 - 3.0) * 0.18;
+                    let ox = -ny * spread * 14.0;
+                    let oy = nx * spread * 14.0;
+                    burst(
+                        &mut commands,
+                        Vec2::new(wx + ox + nx * 6.0, wy + oy + ny * 6.0),
+                        Color::srgba(0.62, 0.58, 0.52, 0.7),
+                        2,
+                        70.0 + i as f32 * 8.0,
+                    );
+                }
+            }
+            ConfirmedEvent::DustImpact { x, y } => {
+                let (wx, wy) = bifrost_sim::Vec2::new(x, y).to_f();
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgba(0.7, 0.66, 0.6, 0.65),
+                    6,
+                    90.0,
+                );
+                burst(
+                    &mut commands,
+                    Vec2::new(wx, wy),
+                    Color::srgba(0.55, 0.52, 0.48, 0.45),
+                    3,
+                    55.0,
+                );
             }
         }
     }

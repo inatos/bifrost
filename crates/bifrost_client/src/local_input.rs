@@ -3,13 +3,15 @@
 use bevy::input::gamepad::{Gamepad, GamepadButton};
 use bevy::prelude::*;
 use bifrost_sim::{
-    FP_SCALE, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_JUMP, INPUT_LEFT, INPUT_RIGHT,
-    INPUT_SPIN, INPUT_UP, PADDLE_SPEED, PADDLE_W,
+    FP_SCALE, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_GRAPPLE, INPUT_JUMP, INPUT_LEFT,
+    INPUT_RIGHT, INPUT_SPIN, INPUT_UP, PADDLE_SPEED, PADDLE_W,
 };
 
 use crate::input_focus::{InputDevice, InputFocus};
 
 const STICK_THRESHOLD: f32 = 0.28;
+/// Right-stick / aim deadzone — 10% larger than move stick.
+const ANGLE_STICK_THRESHOLD: f32 = STICK_THRESHOLD * 1.10;
 /// Stop chase inside this band. Must be ≥ one frame of paddle travel or digital
 /// L/R/U/D overshoots the cursor and oscillates (figure-8 / side-flip).
 const MOUSE_DEADZONE_X: i32 = PADDLE_SPEED * 2;
@@ -24,21 +26,27 @@ pub fn local_input_mask(
     paddle_x: i32,
     paddle_y: i32,
     focus: &mut InputFocus,
-) -> u8 {
+) -> u16 {
     let kb = keyboard_move_mask(keys);
     let mut angle = angle_mask(keys, gamepads) | embed_angle_mask();
-    let (embed_dirs, embed_south, embed_west) = embed_pad_state();
-    let (embed_kb, embed_jump, embed_spin) = embed_keys_state();
+    let (embed_dirs, embed_south, embed_east, embed_west) = embed_pad_state();
+    let (embed_kb, embed_jump, embed_spin, embed_grapple) = embed_keys_state();
     let pad = gamepad_move_mask(gamepads) | embed_dirs | embed_kb;
     let mut jump = jump_mask(keys, gamepads, focus) | embed_jump;
     let mut spin = spin_mask(keys, gamepads, focus) | embed_spin;
+    let mut grapple = grapple_mask(keys, gamepads, focus) | embed_grapple;
     if embed_south {
         focus.note_gamepad();
         jump |= INPUT_JUMP;
     }
-    if embed_west {
+    // Face B / East = Spin (GC layout); Y / North = Grappleshot.
+    if embed_east {
         focus.note_gamepad();
         spin |= INPUT_SPIN;
+    }
+    if embed_west {
+        focus.note_gamepad();
+        grapple |= INPUT_GRAPPLE;
     }
     // Mouse: LMB = spin charge, RMB = snapback stance (angle toward cursor).
     if mouse.pressed(MouseButton::Left) {
@@ -56,14 +64,25 @@ pub fn local_input_mask(
     } else {
         0
     };
+    // Grapple wind uses R-stick cardinals; suppress only angle wind bits.
+    if grapple != 0 {
+        angle &= !(INPUT_ANGLE_CCW | INPUT_ANGLE_CW);
+    }
     poll_cursor_focus(windows, camera_q, focus);
 
-    let extras = jump | spin | angle | mouse_aim;
+    let extras = jump | spin | grapple | angle | mouse_aim;
     if kb != 0 {
         focus.note_keyboard();
         return kb | extras;
     }
-    if pad != 0 || embed_south || embed_west || embed_kb != 0 || embed_jump != 0 || embed_spin != 0
+    if pad != 0
+        || embed_south
+        || embed_east
+        || embed_west
+        || embed_kb != 0
+        || embed_jump != 0
+        || embed_spin != 0
+        || embed_grapple != 0
     {
         focus.note_gamepad();
         return pad | extras;
@@ -84,7 +103,7 @@ fn jump_mask(
     keys: &ButtonInput<KeyCode>,
     gamepads: &Query<&Gamepad>,
     focus: &mut InputFocus,
-) -> u8 {
+) -> u16 {
     // Held level bit — sim edges takeoff/pound; hold enables float.
     if keys.pressed(KeyCode::Space) {
         focus.note_keyboard();
@@ -103,8 +122,9 @@ fn spin_mask(
     keys: &ButtonInput<KeyCode>,
     gamepads: &Query<&Gamepad>,
     focus: &mut InputFocus,
-) -> u8 {
-    if keys.pressed(KeyCode::KeyX) {
+) -> u16 {
+    // Keyboard C/Z = Spin. Pad X (West) + RT — B/X were swapped vs prior East mapping.
+    if keys.pressed(KeyCode::KeyC) || keys.pressed(KeyCode::KeyZ) {
         focus.note_keyboard();
         return INPUT_SPIN;
     }
@@ -120,9 +140,31 @@ fn spin_mask(
     0
 }
 
+fn grapple_mask(
+    keys: &ButtonInput<KeyCode>,
+    gamepads: &Query<&Gamepad>,
+    focus: &mut InputFocus,
+) -> u16 {
+    // Keyboard X = Grappleshot. Pad Y (North) + LT — not B.
+    if keys.pressed(KeyCode::KeyX) {
+        focus.note_keyboard();
+        return INPUT_GRAPPLE;
+    }
+    for gamepad in gamepads.iter() {
+        if gamepad.pressed(GamepadButton::North)
+            || gamepad.pressed(GamepadButton::LeftTrigger)
+            || gamepad.pressed(GamepadButton::LeftTrigger2)
+        {
+            focus.note_gamepad();
+            return INPUT_GRAPPLE;
+        }
+    }
+    0
+}
+
 /// WASD only — arrows are reserved for paddle angle.
-fn keyboard_move_mask(keys: &ButtonInput<KeyCode>) -> u8 {
-    let mut mask = 0u8;
+fn keyboard_move_mask(keys: &ButtonInput<KeyCode>) -> u16 {
+    let mut mask = 0u16;
     if keys.pressed(KeyCode::KeyA) {
         mask |= INPUT_LEFT;
     }
@@ -138,9 +180,9 @@ fn keyboard_move_mask(keys: &ButtonInput<KeyCode>) -> u8 {
     mask
 }
 
-fn angle_mask(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>) -> u8 {
+fn angle_mask(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>) -> u16 {
     let invert = embed_invert_angle();
-    let mut mask = 0u8;
+    let mut mask = 0u16;
     let mut ccw = keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::ArrowUp);
     let mut cw = keys.pressed(KeyCode::ArrowRight) || keys.pressed(KeyCode::ArrowDown);
     // Cardinals travel with angle bits so the sim can latch 2D snap aim
@@ -159,19 +201,19 @@ fn angle_mask(keys: &ButtonInput<KeyCode>, gamepads: &Query<&Gamepad>) -> u8 {
     }
     for gamepad in gamepads.iter() {
         let stick = gamepad.right_stick();
-        if stick.x < -STICK_THRESHOLD {
+        if stick.x < -ANGLE_STICK_THRESHOLD {
             ccw = true;
             mask |= INPUT_LEFT;
         }
-        if stick.x > STICK_THRESHOLD {
+        if stick.x > ANGLE_STICK_THRESHOLD {
             cw = true;
             mask |= INPUT_RIGHT;
         }
-        if stick.y > STICK_THRESHOLD {
+        if stick.y > ANGLE_STICK_THRESHOLD {
             ccw = true;
             mask |= INPUT_UP;
         }
-        if stick.y < -STICK_THRESHOLD {
+        if stick.y < -ANGLE_STICK_THRESHOLD {
             cw = true;
             mask |= INPUT_DOWN;
         }
@@ -203,8 +245,8 @@ fn embed_invert_angle() -> bool {
     }
 }
 
-fn gamepad_move_mask(gamepads: &Query<&Gamepad>) -> u8 {
-    let mut mask = 0u8;
+fn gamepad_move_mask(gamepads: &Query<&Gamepad>) -> u16 {
+    let mut mask = 0u16;
     for gamepad in gamepads.iter() {
         let stick = gamepad.left_stick();
         if stick.x < -STICK_THRESHOLD {
@@ -236,14 +278,14 @@ fn gamepad_move_mask(gamepads: &Query<&Gamepad>) -> u8 {
     mask
 }
 
-/// Lab parent posts `{ type:'bifrost-pad', lx, ly, rx, ry, south, west }`.
-fn embed_pad_state() -> (u8, bool, bool) {
+/// Lab parent posts `{ type:'bifrost-pad', lx, ly, rx, ry, south, east, west, spin, grapple }`.
+fn embed_pad_state() -> (u16, bool, bool, bool) {
     #[cfg(target_arch = "wasm32")]
     {
-        let Some((lx, ly, south, west)) = read_embed_pad() else {
-            return (0, false, false);
+        let Some((lx, ly, south, east, west)) = read_embed_pad() else {
+            return (0, false, false, false);
         };
-        let mut mask = 0u8;
+        let mut mask = 0u16;
         if lx < -STICK_THRESHOLD {
             mask |= INPUT_LEFT;
         }
@@ -256,32 +298,32 @@ fn embed_pad_state() -> (u8, bool, bool) {
         if ly > STICK_THRESHOLD {
             mask |= INPUT_DOWN;
         }
-        (mask, south, west)
+        (mask, south, east, west)
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        (0, false, false)
+        (0, false, false, false)
     }
 }
 
-fn embed_angle_mask() -> u8 {
+fn embed_angle_mask() -> u16 {
     #[cfg(target_arch = "wasm32")]
     {
         let Some((rx, ry)) = read_embed_rstick() else {
             return 0;
         };
         // Embed pad Y matches left-stick embed (y- = up). Include aim cardinals.
-        let mut mask = 0u8;
-        if rx < -STICK_THRESHOLD {
+        let mut mask = 0u16;
+        if rx < -ANGLE_STICK_THRESHOLD {
             mask |= INPUT_ANGLE_CCW | INPUT_LEFT;
         }
-        if rx > STICK_THRESHOLD {
+        if rx > ANGLE_STICK_THRESHOLD {
             mask |= INPUT_ANGLE_CW | INPUT_RIGHT;
         }
-        if ry < -STICK_THRESHOLD {
+        if ry < -ANGLE_STICK_THRESHOLD {
             mask |= INPUT_ANGLE_CCW | INPUT_UP;
         }
-        if ry > STICK_THRESHOLD {
+        if ry > ANGLE_STICK_THRESHOLD {
             mask |= INPUT_ANGLE_CW | INPUT_DOWN;
         }
         mask
@@ -298,14 +340,14 @@ fn mouse_aim_dirs(
     camera_q: &Query<(&Camera, &GlobalTransform, &Transform)>,
     paddle_x: i32,
     paddle_y: i32,
-) -> u8 {
+) -> u16 {
     let Some((wx, wy)) = cursor_world_fp(windows, camera_q) else {
         return 0;
     };
     let dx = wx - paddle_x;
     let dy = wy - paddle_y;
     let thresh = PADDLE_W / 8;
-    let mut mask = 0u8;
+    let mut mask = 0u16;
     if dx > thresh {
         mask |= INPUT_RIGHT;
     } else if dx < -thresh {
@@ -325,7 +367,7 @@ fn mouse_snapback_angle(
     camera_q: &Query<(&Camera, &GlobalTransform, &Transform)>,
     paddle_x: i32,
     paddle_y: i32,
-) -> u8 {
+) -> u16 {
     let Some((wx, wy)) = cursor_world_fp(windows, camera_q) else {
         return INPUT_ANGLE_CW;
     };
@@ -366,7 +408,7 @@ fn cursor_world_fp(
 }
 
 #[cfg(target_arch = "wasm32")]
-fn read_embed_pad() -> Option<(f32, f32, bool, bool)> {
+fn read_embed_pad() -> Option<(f32, f32, bool, bool, bool)> {
     let window = web_sys::window()?;
     let hook = js_sys::Reflect::get(&window, &"__bifrostPad".into()).ok()?;
     if hook.is_undefined() || hook.is_null() {
@@ -378,6 +420,10 @@ fn read_embed_pad() -> Option<(f32, f32, bool, bool)> {
         .ok()
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let east = js_sys::Reflect::get(&hook, &"east".into())
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let west = js_sys::Reflect::get(&hook, &"west".into())
         .ok()
         .and_then(|v| v.as_bool())
@@ -386,11 +432,16 @@ fn read_embed_pad() -> Option<(f32, f32, bool, bool)> {
         .ok()
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let grapple = js_sys::Reflect::get(&hook, &"grapple".into())
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let spin_held = west || spin;
-    if south {
-        let _ = js_sys::Reflect::set(&hook, &"south".into(), &wasm_bindgen::JsValue::FALSE);
-    }
-    Some((lx, ly, south, spin_held))
+    // Grapple is explicit `grapple` / touch — not east/B (B is menu cancel only).
+    let grapple_held = grapple;
+    // Keep face bits as held levels. Clearing south made A-button jump a 1-frame
+    // race against Bevy/GGRS sampling (touch/Space hold the bit; pad must too).
+    Some((lx, ly, south, spin_held, grapple_held))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -413,15 +464,15 @@ fn read_embed_rstick() -> Option<(f32, f32)> {
 
 /// Parent frame posts `{ type:'bifrost-key', code, down }` for cross-origin embed focus.
 #[cfg(target_arch = "wasm32")]
-fn embed_keys_state() -> (u8, u8, u8) {
+fn embed_keys_state() -> (u16, u16, u16, u16) {
     let Some(window) = web_sys::window() else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
     let Ok(hook) = js_sys::Reflect::get(&window, &"__bifrostKeys".into()) else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
     if hook.is_undefined() || hook.is_null() {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     }
     let down = |code: &str| -> bool {
         js_sys::Reflect::get(&hook, &code.into())
@@ -429,7 +480,7 @@ fn embed_keys_state() -> (u8, u8, u8) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     };
-    let mut mask = 0u8;
+    let mut mask = 0u16;
     // WASD move only from embed keys (arrows → angle).
     if down("KeyA") {
         mask |= INPUT_LEFT;
@@ -443,7 +494,7 @@ fn embed_keys_state() -> (u8, u8, u8) {
     if down("KeyS") {
         mask |= INPUT_DOWN;
     }
-    let mut jump = 0u8;
+    let mut jump = 0u16;
     if down("Space")
         || js_sys::Reflect::get(&window, &"__bifrostKeyJump".into())
             .ok()
@@ -452,7 +503,12 @@ fn embed_keys_state() -> (u8, u8, u8) {
     {
         jump |= INPUT_JUMP;
     }
-    let spin = if down("KeyX") { INPUT_SPIN } else { 0 };
+    let spin = if down("KeyC") || down("KeyZ") {
+        INPUT_SPIN
+    } else {
+        0
+    };
+    let grapple = if down("KeyX") { INPUT_GRAPPLE } else { 0 };
     // Angle + aim cardinals from arrow keys via embed.
     if down("ArrowLeft") {
         mask |= INPUT_ANGLE_CCW | INPUT_LEFT;
@@ -466,12 +522,12 @@ fn embed_keys_state() -> (u8, u8, u8) {
     if down("ArrowDown") {
         mask |= INPUT_ANGLE_CW | INPUT_DOWN;
     }
-    (mask, jump, spin)
+    (mask, jump, spin, grapple)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn embed_keys_state() -> (u8, u8, u8) {
-    (0, 0, 0)
+fn embed_keys_state() -> (u16, u16, u16, u16) {
+    (0, 0, 0, 0)
 }
 
 fn poll_cursor_focus(
@@ -494,11 +550,11 @@ fn mouse_directions(
     paddle_x: i32,
     paddle_y: i32,
     focus: &mut InputFocus,
-) -> u8 {
+) -> u16 {
     let Some((target_x, target_y)) = cursor_world_fp(windows, camera_q) else {
         return focus.mouse_move_sticky & (INPUT_LEFT | INPUT_RIGHT | INPUT_UP | INPUT_DOWN);
     };
-    let mut mask = 0u8;
+    let mut mask = 0u16;
     let dx = target_x - paddle_x;
     let dy = target_y - paddle_y;
     // Inside the deadzone: stop. Never keep thrusting through the cursor (the old

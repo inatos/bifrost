@@ -16,7 +16,7 @@ pub struct InputFocus {
     last_mouse_x: f32,
     last_mouse_y: f32,
     /// Sticky mouse move bits — cursor-lost fallback only (not mid-chase thrust).
-    pub mouse_move_sticky: u8,
+    pub mouse_move_sticky: u16,
 }
 
 /// Visual paddle pose used for mouse aim so online rollback / input-delay

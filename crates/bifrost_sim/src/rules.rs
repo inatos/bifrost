@@ -1,6 +1,8 @@
 use crate::fixed::{FP_SCALE, Vec2};
-use crate::input::{FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_JUMP, INPUT_SPIN};
-use crate::paddle_geom::{JUMP_GRAVITY, JUMP_INITIAL_V, MAX_JUMP_Z, paddle_airborne};
+use crate::input::{
+    FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_GRAPPLE, INPUT_JUMP, INPUT_SPIN,
+};
+use crate::paddle_geom::{JUMP_GRAVITY, MAX_JUMP_Z, jump_impulse_for_hop, paddle_airborne};
 use serde::{Deserialize, Serialize};
 
 pub const ARENA_W: i32 = 1200 * FP_SCALE / 1;
@@ -36,9 +38,9 @@ pub const OWNER_NEUTRAL: u8 = 2;
 pub const CORNER_R: i32 = 88 * FP_SCALE;
 pub const BALL_MAX_SPEED: i32 = BALL_SPEED + BALL_SPEED / 2;
 /// Extra kick along the ramp tangent (kept soft — hit also fires a force wave).
-pub const CORNER_TANGENT_KICK: i32 = 5 * FP_SCALE;
+pub const CORNER_TANGENT_KICK: i32 = 9 * FP_SCALE;
 /// Wall knock applied only on corner arc contact (softer than flat WALL_KNOCK).
-pub const CORNER_WALL_KNOCK: i32 = 4 * FP_SCALE;
+pub const CORNER_WALL_KNOCK: i32 = 10 * FP_SCALE;
 
 pub const BRICK_COLS: u8 = 8;
 pub const BRICK_ROWS: u8 = 4;
@@ -56,6 +58,9 @@ pub const SPIN_SWEEP_RADIUS: i32 = PADDLE_W + PADDLE_H;
 pub const GROUND_POUND_V: i32 = -(72 * FP_SCALE);
 pub const GROUND_POUND_RADIUS: i32 = PADDLE_W * 3;
 pub const GROUND_POUND_KNOCK: i32 = 42 * FP_SCALE;
+/// Soft AoE on hop-1/2 landings.
+pub const JUMP_LAND_RADIUS: i32 = PADDLE_W;
+pub const JUMP_LAND_KNOCK: i32 = 14 * FP_SCALE;
 /// Paddle face tilt (±180°) — full omnidirectional snapback wind.
 pub const PADDLE_ANGLE_MAX: i32 = 180 * FP_SCALE;
 /// Wind-up rate — snappy charge toward max.
@@ -68,15 +73,40 @@ pub const PADDLE_ANGLE_STRIKE_MAX: i32 = 58 * FP_SCALE;
 pub const ANGLE_WAVE_DURATION: u32 = 150;
 pub const ANGLE_WAVE_SPEED: i32 = 14 * FP_SCALE;
 /// Soft push when a paddle nests in a corner arch.
-pub const CORNER_PADDLE_KNOCK: i32 = 10 * FP_SCALE;
+pub const CORNER_PADDLE_KNOCK: i32 = 18 * FP_SCALE;
+/// Extra outward impulse as a fraction of inbound closing speed (trampoline).
+/// `FP_SCALE` = 100% of inbound added on top of the elastic reflect.
+pub const CORNER_TRAMPOLINE_GAIN: i32 = (FP_SCALE * 9) / 10;
 /// One-minute round clock (most brick breaks wins; ties OK).
 pub const ROUND_DURATION_FRAMES: u32 = TICKS_PER_SECOND * 60;
 /// Occasional corner shockwave.
 pub const CORNER_PULSE_COOLDOWN_MIN: u32 = 180;
 pub const CORNER_PULSE_COOLDOWN_SPAN: u32 = 240;
-pub const CORNER_PULSE_DURATION: u32 = 28;
-pub const CORNER_PULSE_RADIUS: i32 = 220 * FP_SCALE;
-pub const CORNER_PULSE_KNOCK: i32 = 18 * FP_SCALE;
+pub const CORNER_PULSE_DURATION: u32 = 34;
+pub const CORNER_PULSE_RADIUS: i32 = 260 * FP_SCALE;
+pub const CORNER_PULSE_KNOCK: i32 = 26 * FP_SCALE;
+pub const GRAPPLE_CHARGE_MAX: u16 = 90;
+/// Hitscan reach (+30% from 378).
+pub const GRAPPLE_RANGE: i32 = 491 * FP_SCALE;
+pub const GRAPPLE_PHANTOM_FRAC: i32 = 40; // % of range on miss
+pub const GRAPPLE_ANCHOR_MAX: u16 = 90;
+pub const GRAPPLE_YANK_FRAMES: u16 = 10;
+/// Spidey-sling impulse at full charge (−10% from prior 84).
+pub const GRAPPLE_YANK_IMPULSE: i32 = 76 * FP_SCALE;
+pub const GRAPPLE_LAND_RADIUS: i32 = PADDLE_W * 5 / 2;
+pub const GRAPPLE_LAND_KNOCK: i32 = 48 * FP_SCALE;
+pub const GRAPPLE_TUG_BIAS: i32 = 55; // % of relative vel projected onto tether
+/// Tethered move: against stretch vs along/toward.
+pub const GRAPPLE_MOVE_AGAINST: i32 = 45; // % of PADDLE_SPEED
+pub const GRAPPLE_MOVE_ALONG: i32 = 130;
+pub const GRAPPLE_PHASE_IDLE: u8 = 0;
+pub const GRAPPLE_PHASE_ANCHORED: u8 = 1;
+pub const GRAPPLE_PHASE_YANK: u8 = 2;
+pub const GRAPPLE_ANCHOR_NONE: u8 = 0;
+pub const GRAPPLE_ANCHOR_BALL: u8 = 1;
+pub const GRAPPLE_ANCHOR_PADDLE: u8 = 2;
+pub const GRAPPLE_ANCHOR_BRICK: u8 = 3;
+pub const GRAPPLE_ANCHOR_PHANTOM: u8 = 4;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,7 +127,7 @@ pub struct PaddleState {
     pub vy: i32,
     pub jump_z: i32,
     pub jump_vz: i32,
-    /// Spin charge frames (0..SPIN_CHARGE_MAX) while X/RT is held.
+    /// Spin charge frames (0..SPIN_CHARGE_MAX) while B/RT is held.
     pub spin_charge: u16,
     pub spin_dir_x: i8,
     pub spin_dir_y: i8,
@@ -105,6 +135,8 @@ pub struct PaddleState {
     pub spin_remain: u16,
     /// Sweep angle in degrees × FP_SCALE (0..360).
     pub spin_theta: i32,
+    /// Sweep direction: +1 CCW, −1 CW (latched from stick facing).
+    pub spin_sign: i8,
     /// Prior-frame jump bit for rising-edge jump / ground-pound.
     pub jump_was_held: bool,
     /// True while slamming down from an apex ground-pound.
@@ -120,6 +152,24 @@ pub struct PaddleState {
     pub angle_strike: i32,
     /// Peak jump_z reached this airtime (scales ground-pound).
     pub jump_peak_z: i32,
+    /// Odyssey-style hop count this airtime (0 ground; 1..=3 hops).
+    pub jump_air_count: u8,
+    pub grapple_charge: u16,
+    pub grapple_phase: u8,
+    pub grapple_was_held: bool,
+    pub grapple_anchor_kind: u8,
+    pub grapple_anchor_id: u8,
+    pub grapple_ax: i32,
+    pub grapple_ay: i32,
+    pub grapple_length: i32,
+    pub grapple_dir_x: i32,
+    pub grapple_dir_y: i32,
+    pub grapple_timer: u16,
+    /// Length at attach — stretch = length − rest for rubberband / sling.
+    pub grapple_rest: i32,
+    /// Prior-frame move dir (−1/0/1) for skid dust.
+    pub prev_move_x: i8,
+    pub prev_move_y: i8,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -242,44 +292,12 @@ impl WorldState {
         self.paddles[0] = PaddleState {
             x: 0,
             y: ARENA_H / 2 - margin,
-            vx: 0,
-            vy: 0,
-            jump_z: 0,
-            jump_vz: 0,
-            spin_charge: 0,
-            spin_dir_x: 0,
-            spin_dir_y: 0,
-            spin_remain: 0,
-            spin_theta: 0,
-            jump_was_held: false,
-            ground_pounding: false,
-            angle: 0,
-            angle_was_held: false,
-            snap_aim_x: 0,
-            snap_aim_y: 0,
-            angle_strike: 0,
-            jump_peak_z: 0,
+            ..default_paddle()
         };
         self.paddles[1] = PaddleState {
             x: 0,
             y: -ARENA_H / 2 + margin,
-            vx: 0,
-            vy: 0,
-            jump_z: 0,
-            jump_vz: 0,
-            spin_charge: 0,
-            spin_dir_x: 0,
-            spin_dir_y: 0,
-            spin_remain: 0,
-            spin_theta: 0,
-            jump_was_held: false,
-            ground_pounding: false,
-            angle: 0,
-            angle_was_held: false,
-            snap_aim_x: 0,
-            snap_aim_y: 0,
-            angle_strike: 0,
-            jump_peak_z: 0,
+            ..default_paddle()
         };
         init_brick_hp(
             self.seed,
@@ -369,6 +387,7 @@ fn default_paddle() -> PaddleState {
         spin_dir_y: 0,
         spin_remain: 0,
         spin_theta: 0,
+        spin_sign: 1,
         jump_was_held: false,
         ground_pounding: false,
         angle: 0,
@@ -377,6 +396,21 @@ fn default_paddle() -> PaddleState {
         snap_aim_y: 0,
         angle_strike: 0,
         jump_peak_z: 0,
+        jump_air_count: 0,
+        grapple_charge: 0,
+        grapple_phase: GRAPPLE_PHASE_IDLE,
+        grapple_was_held: false,
+        grapple_anchor_kind: GRAPPLE_ANCHOR_NONE,
+        grapple_anchor_id: 0,
+        grapple_ax: 0,
+        grapple_ay: 0,
+        grapple_length: 0,
+        grapple_dir_x: 0,
+        grapple_dir_y: FP_SCALE,
+        grapple_timer: 0,
+        grapple_rest: 0,
+        prev_move_x: 0,
+        prev_move_y: 0,
     }
 }
 
@@ -418,7 +452,19 @@ pub fn step(state: &mut WorldState, input: FrameInput) -> crate::StepOutput {
     state.frame = state.frame.saturating_add(1);
 
     match state.phase {
-        MatchPhase::MatchOver => return crate::StepOutput { events },
+        MatchPhase::MatchOver => {
+            // Rematch votes reuse ready[] + JUMP (online Play Again / bot button).
+            for player in 0..2 {
+                let mask = input.for_player(player);
+                if (mask & INPUT_JUMP) != 0 {
+                    state.ready[player] = true;
+                }
+            }
+            if state.ready[0] && state.ready[1] {
+                begin_rematch(state);
+            }
+            return crate::StepOutput { events };
+        }
         MatchPhase::Readying => {
             for player in 0..2 {
                 let mask = input.for_player(player);
@@ -437,9 +483,13 @@ pub fn step(state: &mut WorldState, input: FrameInput) -> crate::StepOutput {
         MatchPhase::Serving => {
             move_paddles(state, &input, &mut events);
             tick_angle_wave(state, &mut events);
-            resolve_paddle_corners(state);
+            if let Some(corner) = resolve_paddle_corners(state) {
+                fire_corner_hit_pulse(state, &mut events, corner);
+            }
             resolve_paddle_collisions(state);
-            super::wild_bricks::tick_wild(state);
+            if let Some(corner) = super::wild_bricks::tick_wild(state) {
+                fire_corner_hit_pulse(state, &mut events, corner);
+            }
             if state.serve_timer > 0 {
                 state.serve_timer -= 1;
             }
@@ -466,7 +516,9 @@ pub fn step(state: &mut WorldState, input: FrameInput) -> crate::StepOutput {
     move_paddles(state, &input, &mut events);
     tick_corner_pulses(state, &mut events);
     tick_angle_wave(state, &mut events);
-    resolve_paddle_corners(state);
+    if let Some(corner) = resolve_paddle_corners(state) {
+        fire_corner_hit_pulse(state, &mut events, corner);
+    }
     let prev_ball_y = state.ball.pos.y;
     let hit = super::collision::advance_ball(state);
     for e in &hit {
@@ -477,7 +529,9 @@ pub fn step(state: &mut WorldState, input: FrameInput) -> crate::StepOutput {
     events.extend(hit.into_iter());
     resolve_paddle_collisions(state);
     events.extend(resolve_paddle_wilds(state));
-    super::wild_bricks::tick_wild(state);
+    if let Some(corner) = super::wild_bricks::tick_wild(state) {
+        fire_corner_hit_pulse(state, &mut events, corner);
+    }
 
     if state.phase == MatchPhase::Rally {
         if state.round_timer > 0 {
@@ -584,6 +638,7 @@ fn apply_round_win(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEven
     events.push(ConfirmedEvent::RoundWin { winner: scorer });
     if state.rounds_won[scorer as usize] >= 2 {
         state.phase = MatchPhase::MatchOver;
+        state.ready = [false, false];
     } else {
         state.reset_round();
         state.server = scorer;
@@ -674,9 +729,27 @@ fn begin_match_from_ready(state: &mut WorldState) {
     state.angle_wave_power = 0;
     state.round_breaks = [0, 0];
     state.round_timer = ROUND_DURATION_FRAMES;
+    state.ready = [false, false];
     state.phase = MatchPhase::Serving;
     state.serve_timer = SERVE_FRAMES;
     state.place_serve_ball();
+}
+
+/// Full series rematch after MatchOver — park in Readying so both confirm again.
+fn begin_rematch(state: &mut WorldState) {
+    state.rounds_won = [0, 0];
+    state.score = [0, 0];
+    state.stats = MatchStats::default();
+    state.round_index = 0;
+    state.server = 0;
+    state.ready = [false, false];
+    state.corner_pulse_t = 0;
+    state.angle_wave_t = 0;
+    state.angle_wave_power = 0;
+    state.reset_round();
+    state.phase = MatchPhase::Readying;
+    state.serve_timer = 0;
+    state.ready = [false, false];
 }
 
 fn tick_angle_wave(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEvent>) {
@@ -750,47 +823,26 @@ fn tick_angle_wave(state: &mut WorldState, events: &mut Vec<crate::ConfirmedEven
     }
 }
 
-/// Push paddles out of corner arches (same hitboxes that bounce the ball).
-fn resolve_paddle_corners(state: &mut WorldState) {
-    let edge_x = ARENA_W / 2 - WALL;
-    let edge_y = ARENA_H / 2 - WALL;
-    let r = CORNER_R;
-    let max_dist = r - PADDLE_H / 2;
-    if max_dist <= 0 {
-        return;
-    }
-    let corners = [
-        (-edge_x + r, -edge_y + r, -1, -1),
-        (edge_x - r, -edge_y + r, 1, -1),
-        (-edge_x + r, edge_y - r, -1, 1),
-        (edge_x - r, edge_y - r, 1, 1),
-    ];
-    let max_sq = (max_dist as i64) * (max_dist as i64);
+/// Push paddles out of corner arches (safety net after move_paddles trampoline).
+/// Returns which corner fired (if any) so the caller can emit a force wave.
+fn resolve_paddle_corners(state: &mut WorldState) -> Option<u8> {
+    let body_r = (PADDLE_W / 4).max(PADDLE_H);
+    let mut hit = None;
     for p in &mut state.paddles {
-        for &(cx, cy, ox, oy) in &corners {
-            if (ox < 0 && p.x > cx) || (ox > 0 && p.x < cx) {
-                continue;
-            }
-            if (oy < 0 && p.y > cy) || (oy > 0 && p.y < cy) {
-                continue;
-            }
-            let dx = p.x - cx;
-            let dy = p.y - cy;
-            let dist_sq = dx as i64 * dx as i64 + dy as i64 * dy as i64;
-            if dist_sq == 0 || dist_sq <= max_sq {
-                continue;
-            }
-            let dist = crate::fixed::isqrt(dist_sq).max(1);
-            let nx = -((dx as i64 * FP_SCALE as i64) / dist) as i32;
-            let ny = -((dy as i64 * FP_SCALE as i64) / dist) as i32;
-            p.x = cx + ((dx as i64 * max_dist as i64) / dist) as i32;
-            p.y = cy + ((dy as i64 * max_dist as i64) / dist) as i32;
-            p.vx += nx * CORNER_PADDLE_KNOCK / FP_SCALE.max(1);
-            p.vy += ny * CORNER_PADDLE_KNOCK / FP_SCALE.max(1);
+        if let Some(corner) = crate::collision::resolve_body_corner_arcs(
+            &mut p.x,
+            &mut p.y,
+            &mut p.vx,
+            &mut p.vy,
+            body_r,
+            CORNER_PADDLE_KNOCK,
+            CORNER_TANGENT_KICK / 2,
+        ) {
             clamp_paddle_knock(p);
-            break;
+            hit = Some(corner);
         }
     }
+    hit
 }
 
 fn fire_corner_hit_pulse(
@@ -799,15 +851,9 @@ fn fire_corner_hit_pulse(
     corner: u8,
 ) {
     use crate::ConfirmedEvent;
-    // Don't stack pulses; refresh if already pulsing the same corner.
-    if state.corner_pulse_t > 0 && state.corner_pulse_id == corner {
-        state.corner_pulse_t = CORNER_PULSE_DURATION;
-        return;
-    }
-    if state.corner_pulse_t > 0 {
-        return;
-    }
-    state.corner_pulse_id = corner.min(3);
+    let corner = corner.min(3);
+    // Bounce always refreshes the sim pulse and re-emits juice (ring/SFX).
+    state.corner_pulse_id = corner;
     state.corner_pulse_t = CORNER_PULSE_DURATION;
     state.corner_pulse_cd = CORNER_PULSE_COOLDOWN_MIN / 2;
     let origin = corner_origin(state.corner_pulse_id);
@@ -895,29 +941,60 @@ fn move_paddles(
         let dx = FrameInput::direction_x(mask);
         let dy = FrameInput::direction_y(mask);
         let mut angle_wave_spawn: Option<(i32, i32, i32, i32, u32)> = None;
+        let mut sling_event: Option<crate::ConfirmedEvent> = None;
+        let mut skid_event: Option<crate::ConfirmedEvent> = None;
         let spin_release = {
             let p = &mut state.paddles[player];
             let jump_down = (mask & INPUT_JUMP) != 0;
             let jump_edge = jump_down && !p.jump_was_held;
             if jump_edge && state.phase != MatchPhase::Readying {
-                if p.jump_z == 0 && p.jump_vz == 0 && !p.ground_pounding {
-                    p.jump_vz = JUMP_INITIAL_V;
-                    p.jump_peak_z = 0;
-                    // Preserve / boost horizontal momentum into the leap.
-                    if dx != 0 {
-                        p.vx += dx * PADDLE_SPEED * 3 / 4;
-                    }
-                    if dy != 0 {
-                        p.vy += dy * PADDLE_SPEED * 3 / 4;
-                    }
-                    // Keep existing knock/slide momentum rather than hard-resetting.
+                // Rubberband sling: jump while ANCHORED cancels tether, keeps inertia + super jump.
+                if p.grapple_phase == GRAPPLE_PHASE_ANCHORED {
+                    let stretch = (p.grapple_length - p.grapple_rest).max(0);
+                    let stretch_t =
+                        (stretch as i64 * 1000 / GRAPPLE_RANGE.max(1) as i64).clamp(0, 1000) as i32;
+                    let sling =
+                        (GRAPPLE_YANK_IMPULSE as i64 * (400 + stretch_t as i64 * 8 / 10) / 1000)
+                            .max((GRAPPLE_YANK_IMPULSE / 4) as i64) as i32;
+                    p.vx -= (p.grapple_dir_x as i64 * sling as i64 / FP_SCALE as i64) as i32;
+                    p.vy -= (p.grapple_dir_y as i64 * sling as i64 / FP_SCALE as i64) as i32;
                     clamp_paddle_knock(p);
-                } else if super::paddle_geom::can_ground_pound(p) {
-                    // SM64-style: second jump in air → slam (overwrite upward vel).
-                    p.ground_pounding = true;
-                    p.jump_vz = GROUND_POUND_V;
-                    if p.jump_peak_z < p.jump_z {
-                        p.jump_peak_z = p.jump_z;
+                    let (sx, sy) = (p.x, p.y);
+                    p.jump_air_count = 1;
+                    p.jump_vz = jump_impulse_for_hop(1)
+                        + (jump_impulse_for_hop(1) as i64 * stretch_t as i64 / 1000) as i32;
+                    p.jump_peak_z = 0;
+                    clear_grapple(p);
+                    sling_event = Some(crate::ConfirmedEvent::GrappleSling {
+                        player: player as u8,
+                        x: sx,
+                        y: sy,
+                    });
+                } else {
+                    let on_ground = p.jump_z == 0 && p.jump_vz == 0 && !p.ground_pounding;
+                    if on_ground {
+                        p.jump_air_count = 1;
+                        p.jump_vz = jump_impulse_for_hop(1);
+                        p.jump_peak_z = 0;
+                        if dx != 0 {
+                            p.vx += dx * PADDLE_SPEED * 3 / 4;
+                        }
+                        if dy != 0 {
+                            p.vy += dy * PADDLE_SPEED * 3 / 4;
+                        }
+                        clamp_paddle_knock(p);
+                    } else if p.jump_air_count > 0 && p.jump_air_count < 3 && !p.ground_pounding {
+                        p.jump_air_count = p.jump_air_count.saturating_add(1);
+                        p.jump_vz = jump_impulse_for_hop(p.jump_air_count);
+                        if p.jump_peak_z < p.jump_z {
+                            p.jump_peak_z = p.jump_z;
+                        }
+                    } else if super::paddle_geom::can_ground_pound(p) {
+                        p.ground_pounding = true;
+                        p.jump_vz = GROUND_POUND_V;
+                        if p.jump_peak_z < p.jump_z {
+                            p.jump_peak_z = p.jump_z;
+                        }
                     }
                 }
             }
@@ -997,7 +1074,8 @@ fn move_paddles(
                 }
             }
 
-            let spin_held = (mask & INPUT_SPIN) != 0;
+            let grapple_held = (mask & INPUT_GRAPPLE) != 0;
+            let spin_held = (mask & INPUT_SPIN) != 0 && !grapple_held;
             let mut release = None::<u16>;
             if p.spin_remain > 0 {
                 // Mid-sweep: ignore new charge.
@@ -1041,26 +1119,97 @@ fn move_paddles(
         if let Some(charge) = spin_release {
             release_spin(state, player, charge, events);
         }
+        if let Some(ev) = sling_event {
+            events.push(ev);
+        }
         tick_spin_sweep(state, player, events);
+        tick_grapple(state, player, mask, events);
 
-        let (pounded, pound_peak) = {
+        let (pounded, pound_peak, triple_land, soft_land_hop, corner_hit, corner_id) = {
             let p = &mut state.paddles[player];
             let jump_held = (mask & INPUT_JUMP) != 0;
+            let airborne = p.jump_z > 0 || p.jump_vz != 0;
+            let anchored = p.grapple_phase == GRAPPLE_PHASE_ANCHORED;
 
-            // Aim cardinals ride on move bits while winding — don't walk the paddle.
-            let winding = (mask & (INPUT_ANGLE_CCW | INPUT_ANGLE_CW)) != 0;
+            // Angle wind / active charge lock walk; ANCHORED allows rubberband move.
+            let winding = (mask & (INPUT_ANGLE_CCW | INPUT_ANGLE_CW)) != 0
+                || ((mask & INPUT_GRAPPLE) != 0 && !anchored)
+                || p.grapple_phase == GRAPPLE_PHASE_YANK;
             if !winding {
-                if dx != 0 {
-                    p.x += dx * PADDLE_SPEED;
-                }
-                if dy != 0 {
-                    p.y += dy * PADDLE_SPEED;
+                if anchored {
+                    let tdx = p.grapple_dir_x;
+                    let tdy = p.grapple_dir_y;
+                    let dot = dx * tdx + dy * tdy;
+                    let speed = if (dx != 0 || dy != 0) && dot < 0 {
+                        PADDLE_SPEED * GRAPPLE_MOVE_AGAINST / 100
+                    } else if dx != 0 || dy != 0 {
+                        PADDLE_SPEED * GRAPPLE_MOVE_ALONG / 100
+                    } else {
+                        0
+                    };
+                    if dx != 0 {
+                        p.x += dx * speed;
+                    }
+                    if dy != 0 {
+                        p.y += dy * speed;
+                    }
+                    // Soft rubber pull toward rest length.
+                    let stretch = p.grapple_length - p.grapple_rest;
+                    if stretch > FP_SCALE {
+                        let pull = (stretch / 18).min(PADDLE_SPEED / 2);
+                        p.vx += (tdx as i64 * pull as i64 / FP_SCALE as i64) as i32;
+                        p.vy += (tdy as i64 * pull as i64 / FP_SCALE as i64) as i32;
+                    }
+                } else if airborne {
+                    // Air steer — additive, preserves yank/knock momentum.
+                    if dx != 0 {
+                        p.vx += dx * PADDLE_SPEED / 4;
+                    }
+                    if dy != 0 {
+                        p.vy += dy * PADDLE_SPEED / 4;
+                    }
+                    clamp_paddle_knock(p);
+                } else {
+                    if dx != 0 {
+                        p.x += dx * PADDLE_SPEED;
+                    }
+                    if dy != 0 {
+                        p.y += dy * PADDLE_SPEED;
+                    }
                 }
             }
+
+            // Dust skid on grounded pivot.
+            if !airborne && (dx != 0 || dy != 0) {
+                let px = p.prev_move_x as i32;
+                let py = p.prev_move_y as i32;
+                let speed = p.vx.abs() + p.vy.abs();
+                let pivoted =
+                    (px != 0 || py != 0) && (px * dx + py * dy) <= 0 && (dx != px || dy != py);
+                if pivoted && speed > PADDLE_SPEED / 2 {
+                    let sx = -dx * FP_SCALE;
+                    let sy = -dy * FP_SCALE;
+                    skid_event = Some(crate::ConfirmedEvent::DustSkid {
+                        x: p.x,
+                        y: p.y,
+                        dir_x: sx,
+                        dir_y: sy,
+                    });
+                }
+            }
+            p.prev_move_x = dx.clamp(-1, 1) as i8;
+            p.prev_move_y = dy.clamp(-1, 1) as i8;
+
             p.x += p.vx;
             p.y += p.vy;
-            p.vx = (p.vx as i64 * KNOCK_DECAY_NUM as i64 / KNOCK_DECAY_DEN as i64) as i32;
-            p.vy = (p.vy as i64 * KNOCK_DECAY_NUM as i64 / KNOCK_DECAY_DEN as i64) as i32;
+            // Preserve momentum longer while airborne (yank → jump).
+            let (dn, dd) = if airborne {
+                (92, 100)
+            } else {
+                (KNOCK_DECAY_NUM, KNOCK_DECAY_DEN)
+            };
+            p.vx = (p.vx as i64 * dn as i64 / dd as i64) as i32;
+            p.vy = (p.vy as i64 * dn as i64 / dd as i64) as i32;
             clamp_paddle_knock(p);
             if p.vx.abs() < FP_SCALE / 50 {
                 p.vx = 0;
@@ -1071,16 +1220,17 @@ fn move_paddles(
 
             let mut pounded = false;
             let mut pound_peak = 0;
+            let mut triple_land = false;
+            let mut soft_land_hop = 0u8;
             if p.jump_vz != 0 || p.jump_z > 0 {
-                // SM64 variable jump: hold jump while rising → float higher.
+                // Milder hold-float than SM64 (Odyssey hops, less floaty).
                 let hold_float = jump_held && p.jump_vz > 0 && !p.ground_pounding;
                 if hold_float {
-                    p.jump_vz -= JUMP_GRAVITY / 2;
+                    p.jump_vz -= JUMP_GRAVITY * 3 / 4;
                 } else {
                     p.jump_vz -= JUMP_GRAVITY;
                 }
                 if p.ground_pounding {
-                    // Faster slam.
                     p.jump_vz -= JUMP_GRAVITY;
                 }
                 p.jump_z += p.jump_vz;
@@ -1090,10 +1240,16 @@ fn move_paddles(
                 if p.jump_z <= 0 {
                     pounded = p.ground_pounding;
                     pound_peak = p.jump_peak_z;
+                    let hops = p.jump_air_count;
+                    triple_land = !pounded && hops >= 3;
+                    if !pounded && !triple_land && hops > 0 {
+                        soft_land_hop = hops;
+                    }
                     p.jump_z = 0;
                     p.jump_vz = 0;
                     p.ground_pounding = false;
                     p.jump_peak_z = 0;
+                    p.jump_air_count = 0;
                 } else if p.jump_z > MAX_JUMP_Z {
                     p.jump_z = MAX_JUMP_Z;
                     if p.jump_vz > 0 {
@@ -1119,33 +1275,76 @@ fn move_paddles(
             }
 
             // Soft clamp — kill into-wall velocity, keep along-wall slide.
-            if p.x < -bound_x {
-                p.x = -bound_x;
-                if p.vx < 0 {
-                    p.vx = 0;
-                }
-            } else if p.x > bound_x {
-                p.x = bound_x;
-                if p.vx > 0 {
-                    p.vx = 0;
-                }
-            }
-            if p.y < -bound_y {
-                p.y = -bound_y;
-                if p.vy < 0 {
-                    p.vy = 0;
-                }
-            } else if p.y > bound_y {
-                p.y = bound_y;
-                if p.vy > 0 {
-                    p.vy = 0;
+            // Corner arches trampoline instead of dead-stopping into the fillet.
+            let mut corner_hit = false;
+            let mut corner_id = 0u8;
+            {
+                // Fat paddle: use a radius that reaches the arch before AABB clamps mute inbound speed.
+                let body_r = (PADDLE_W / 4).max(PADDLE_H);
+                if let Some(corner) = crate::collision::resolve_body_corner_arcs(
+                    &mut p.x,
+                    &mut p.y,
+                    &mut p.vx,
+                    &mut p.vy,
+                    body_r,
+                    CORNER_PADDLE_KNOCK,
+                    CORNER_TANGENT_KICK / 2,
+                ) {
+                    clamp_paddle_knock(p);
+                    corner_hit = true;
+                    corner_id = corner;
                 }
             }
-            (pounded, pound_peak)
+            if !corner_hit {
+                if p.x < -bound_x {
+                    p.x = -bound_x;
+                    if p.vx < 0 {
+                        p.vx = 0;
+                    }
+                } else if p.x > bound_x {
+                    p.x = bound_x;
+                    if p.vx > 0 {
+                        p.vx = 0;
+                    }
+                }
+                if p.y < -bound_y {
+                    p.y = -bound_y;
+                    if p.vy < 0 {
+                        p.vy = 0;
+                    }
+                } else if p.y > bound_y {
+                    p.y = bound_y;
+                    if p.vy > 0 {
+                        p.vy = 0;
+                    }
+                }
+            } else {
+                // Still keep AABB inside playable bounds after trampoline push.
+                p.x = p.x.clamp(-bound_x, bound_x);
+                p.y = p.y.clamp(-bound_y, bound_y);
+            }
+            (
+                pounded,
+                pound_peak,
+                triple_land,
+                soft_land_hop,
+                corner_hit,
+                corner_id,
+            )
         };
 
         if pounded {
             apply_ground_pound(state, player, pound_peak, events);
+        } else if triple_land {
+            apply_triple_land(state, player, events);
+        } else if soft_land_hop > 0 {
+            apply_jump_land(state, player, soft_land_hop, events);
+        }
+        if corner_hit {
+            fire_corner_hit_pulse(state, events, corner_id);
+        }
+        if let Some(ev) = skid_event {
+            events.push(ev);
         }
     }
 }
@@ -1163,11 +1362,45 @@ fn release_spin(
     // Longer charge → slightly longer / stronger sweep.
     let bonus = ((charge as u32 * 12) / SPIN_CHARGE_MAX as u32) as u16;
     p.spin_remain = SPIN_SWEEP_FRAMES + bonus;
-    p.spin_theta = 0;
+    // Seed sweep from latched stick facing (top-like rotation).
+    p.spin_theta = spin_dir_to_theta(p.spin_dir_x, p.spin_dir_y);
+    // Sweep sign: prefer horizontal facing; fall back to seat default.
+    p.spin_sign = if p.spin_dir_x > 0 {
+        1
+    } else if p.spin_dir_x < 0 {
+        -1
+    } else if player == 0 {
+        1
+    } else {
+        -1
+    };
+    // Light knock scale already uses charge via sweep length.
     events.push(ConfirmedEvent::SpinRelease {
         player: player as u8,
         charge,
     });
+}
+
+fn spin_dir_to_theta(dx: i8, dy: i8) -> i32 {
+    // 8-way atan2 → degrees × FP_SCALE (0 = +X, CCW).
+    let deg = if dx == 0 && dy > 0 {
+        90
+    } else if dx < 0 && dy > 0 {
+        135
+    } else if dx < 0 && dy == 0 {
+        180
+    } else if dx < 0 && dy < 0 {
+        225
+    } else if dx == 0 && dy < 0 {
+        270
+    } else if dx > 0 && dy < 0 {
+        315
+    } else if dx > 0 && dy > 0 {
+        45
+    } else {
+        0
+    };
+    deg * FP_SCALE
 }
 
 fn tick_spin_sweep(state: &mut WorldState, player: usize, events: &mut Vec<crate::ConfirmedEvent>) {
@@ -1184,8 +1417,10 @@ fn tick_spin_sweep(state: &mut WorldState, player: usize, events: &mut Vec<crate
     };
     {
         let p = &mut state.paddles[player];
+        let sign = if p.spin_sign < 0 { -1 } else { 1 };
         let step_deg = (360 * FP_SCALE) / SPIN_SWEEP_FRAMES.max(1) as i32;
-        p.spin_theta = (p.spin_theta + step_deg) % (360 * FP_SCALE);
+        let next = p.spin_theta + sign * step_deg;
+        p.spin_theta = ((next % (360 * FP_SCALE)) + 360 * FP_SCALE) % (360 * FP_SCALE);
         p.spin_remain = p.spin_remain.saturating_sub(1);
     }
     let origin = state.paddles[player];
@@ -1193,10 +1428,11 @@ fn tick_spin_sweep(state: &mut WorldState, player: usize, events: &mut Vec<crate
     let dx = state.ball.pos.x - origin.x;
     let dy = state.ball.pos.y - origin.y;
     if dx as i64 * dx as i64 + dy as i64 * dy as i64 <= reach * reach {
-        // Tangential shove around the paddle (sword arc).
+        // Tangential shove around the paddle (sword arc); flip with spin_sign.
         let (c, s) = super::paddle_geom::cos_sin_deg(origin.spin_theta / FP_SCALE);
-        let tx = -s; // tangent of sweep circle
-        let ty = c;
+        let sign = if origin.spin_sign < 0 { -1 } else { 1 };
+        let tx = -s * sign;
+        let ty = c * sign;
         state.ball.vel.x += (tx as i64 * charge_scale as i64 / FP_SCALE as i64) as i32;
         state.ball.vel.y += (ty as i64 * charge_scale as i64 / FP_SCALE as i64) as i32;
         // Also push outward a little.
@@ -1214,29 +1450,347 @@ fn tick_spin_sweep(state: &mut WorldState, player: usize, events: &mut Vec<crate
     // Bricks are ball-only — spin never damages the board.
 }
 
-fn apply_ground_pound(
+fn clear_grapple(p: &mut PaddleState) {
+    p.grapple_phase = GRAPPLE_PHASE_IDLE;
+    p.grapple_charge = 0;
+    p.grapple_anchor_kind = GRAPPLE_ANCHOR_NONE;
+    p.grapple_anchor_id = 0;
+    p.grapple_ax = 0;
+    p.grapple_ay = 0;
+    p.grapple_length = 0;
+    p.grapple_timer = 0;
+    p.grapple_was_held = false;
+    p.grapple_rest = 0;
+}
+
+fn latch_grapple_aim(p: &mut PaddleState, mask: crate::input::InputMask, player: usize) {
+    let sx = FrameInput::direction_x(mask);
+    let sy = FrameInput::direction_y(mask);
+    if sx == 0 && sy == 0 {
+        if p.grapple_dir_x == 0 && p.grapple_dir_y == 0 {
+            p.grapple_dir_x = 0;
+            p.grapple_dir_y = if player == 0 { -FP_SCALE } else { FP_SCALE };
+        }
+        return;
+    }
+    let len = crate::fixed::isqrt((sx * sx + sy * sy) as i64).max(1) as i32;
+    p.grapple_dir_x = sx * FP_SCALE / len;
+    p.grapple_dir_y = sy * FP_SCALE / len;
+}
+
+fn tick_grapple(
     state: &mut WorldState,
     player: usize,
-    peak_z: i32,
+    mask: crate::input::InputMask,
     events: &mut Vec<crate::ConfirmedEvent>,
 ) {
     use crate::ConfirmedEvent;
     use crate::collision::enforce_ball_speed;
-    let origin = state.paddles[player];
-    events.push(ConfirmedEvent::GroundPound {
-        player: player as u8,
-        x: origin.x,
-        y: origin.y,
-    });
 
-    // Higher peak → larger AoE and stronger knock (SM64 feel).
-    let height_t = (peak_z as i64 * 1000 / MAX_JUMP_Z.max(1) as i64).clamp(250, 1000);
-    let radius = (GROUND_POUND_RADIUS as i64 * (700 + height_t * 3 / 10) / 1000) as i32;
-    let knock = (GROUND_POUND_KNOCK as i64 * (550 + height_t * 45 / 100) / 1000) as i32;
+    let held = (mask & INPUT_GRAPPLE) != 0;
+    let phase = state.paddles[player].grapple_phase;
+
+    if phase == GRAPPLE_PHASE_YANK {
+        let p = &mut state.paddles[player];
+        if p.grapple_timer > 0 {
+            p.grapple_timer -= 1;
+        }
+        if p.grapple_timer == 0 {
+            clear_grapple(p);
+        }
+        return;
+    }
+
+    if phase == GRAPPLE_PHASE_ANCHORED {
+        // Update anchor point for moving targets.
+        let kind = state.paddles[player].grapple_anchor_kind;
+        let id = state.paddles[player].grapple_anchor_id;
+        let (ax, ay) = match kind {
+            GRAPPLE_ANCHOR_BALL => (state.ball.pos.x, state.ball.pos.y),
+            GRAPPLE_ANCHOR_PADDLE => {
+                let other = 1 - player;
+                (state.paddles[other].x, state.paddles[other].y)
+            }
+            GRAPPLE_ANCHOR_BRICK => {
+                let c = state.brick_center(id as usize);
+                (c.x, c.y)
+            }
+            _ => (
+                state.paddles[player].grapple_ax,
+                state.paddles[player].grapple_ay,
+            ),
+        };
+        {
+            let p = &mut state.paddles[player];
+            p.grapple_ax = ax;
+            p.grapple_ay = ay;
+            let dx = ax - p.x;
+            let dy = ay - p.y;
+            let len = crate::fixed::isqrt(dx as i64 * dx as i64 + dy as i64 * dy as i64).max(1);
+            p.grapple_dir_x = ((dx as i64 * FP_SCALE as i64) / len) as i32;
+            p.grapple_dir_y = ((dy as i64 * FP_SCALE as i64) / len) as i32;
+            p.grapple_length = len as i32;
+        }
+
+        // Defender spin-out breaks tether.
+        if kind == GRAPPLE_ANCHOR_PADDLE || kind == GRAPPLE_ANCHOR_BALL {
+            let other = 1 - player;
+            let defender = state.paddles[other];
+            if defender.spin_remain > 0 {
+                let p = state.paddles[player];
+                // Opposing: defender spin facing into the tether (toward attacker).
+                let toward_atk_x = -p.grapple_dir_x.signum();
+                let toward_atk_y = -p.grapple_dir_y.signum();
+                let sx = defender.spin_dir_x as i32;
+                let sy = defender.spin_dir_y as i32;
+                let opposing = sx * toward_atk_x + sy * toward_atk_y > 0 || (sx == 0 && sy == 0);
+                if opposing {
+                    let (bx, by) = (p.grapple_ax, p.grapple_ay);
+                    clear_grapple(&mut state.paddles[player]);
+                    events.push(ConfirmedEvent::GrappleBreak {
+                        player: player as u8,
+                        x: bx,
+                        y: by,
+                    });
+                    events.push(ConfirmedEvent::Clang { x: bx, y: by });
+                    return;
+                }
+            }
+        }
+
+        // Ball tug: project relative velocity onto tether (block/chorale).
+        if kind == GRAPPLE_ANCHOR_BALL {
+            let p = state.paddles[player];
+            let nx = p.grapple_dir_x;
+            let ny = p.grapple_dir_y;
+            let rel_x = state.ball.vel.x - p.vx;
+            let rel_y = state.ball.vel.y - p.vy;
+            let along = (rel_x as i64 * nx as i64 + rel_y as i64 * ny as i64) / FP_SCALE as i64;
+            // Cancel outbound slide along tether; keep tangential.
+            if along > 0 {
+                let cut = (along * GRAPPLE_TUG_BIAS as i64 / 100) as i32;
+                state.ball.vel.x -= (cut as i64 * nx as i64 / FP_SCALE as i64) as i32;
+                state.ball.vel.y -= (cut as i64 * ny as i64 / FP_SCALE as i64) as i32;
+                enforce_ball_speed(&mut state.ball.vel);
+            }
+            state.ball.owner = player as u8;
+        }
+
+        let release_edge = !held && state.paddles[player].grapple_was_held;
+        let timed_out = {
+            let p = &mut state.paddles[player];
+            if p.grapple_timer > 0 {
+                p.grapple_timer -= 1;
+            }
+            p.grapple_was_held = held;
+            p.grapple_timer == 0
+        };
+        if release_edge || timed_out {
+            let charge = state.paddles[player]
+                .grapple_charge
+                .max(18)
+                .min(GRAPPLE_CHARGE_MAX);
+            let dir_x = state.paddles[player].grapple_dir_x;
+            let dir_y = state.paddles[player].grapple_dir_y;
+            let (yx, yy) = (
+                state.paddles[player].grapple_ax,
+                state.paddles[player].grapple_ay,
+            );
+            let impulse = (GRAPPLE_YANK_IMPULSE as i64 * charge as i64 * charge as i64
+                / (GRAPPLE_CHARGE_MAX as i64 * GRAPPLE_CHARGE_MAX as i64))
+                .max((GRAPPLE_YANK_IMPULSE / 3) as i64) as i32;
+            {
+                let p = &mut state.paddles[player];
+                p.vx += (dir_x as i64 * impulse as i64 / FP_SCALE as i64) as i32;
+                p.vy += (dir_y as i64 * impulse as i64 / FP_SCALE as i64) as i32;
+                clamp_paddle_knock(p);
+            }
+            // Explosive land hitbox at anchor (players / wilds / ball).
+            apply_radial_aoe(
+                state,
+                player,
+                yx,
+                yy,
+                GRAPPLE_LAND_RADIUS,
+                GRAPPLE_LAND_KNOCK,
+            );
+            {
+                let p = &mut state.paddles[player];
+                p.grapple_phase = GRAPPLE_PHASE_YANK;
+                p.grapple_timer = GRAPPLE_YANK_FRAMES;
+            }
+            events.push(ConfirmedEvent::GrappleYank {
+                player: player as u8,
+                charge,
+                x: yx,
+                y: yy,
+            });
+        }
+        return;
+    }
+
+    // Idle: charge / fire.
+    if held {
+        let p = &mut state.paddles[player];
+        latch_grapple_aim(p, mask, player);
+        // +50% charge rate vs prior ~1.35/frame → ~2.025/frame.
+        let bump = if (state.frame % 40) < 21 { 2 } else { 3 };
+        p.grapple_charge = p
+            .grapple_charge
+            .saturating_add(bump)
+            .min(GRAPPLE_CHARGE_MAX);
+        p.grapple_was_held = true;
+        return;
+    }
+
+    if state.paddles[player].grapple_was_held && state.paddles[player].grapple_charge > 0 {
+        let charge = state.paddles[player].grapple_charge.max(12);
+        latch_grapple_aim(&mut state.paddles[player], mask, player);
+        let origin = state.paddles[player];
+        let nx = origin.grapple_dir_x;
+        let ny = origin.grapple_dir_y;
+        events.push(ConfirmedEvent::GrappleFire {
+            player: player as u8,
+            charge,
+        });
+
+        // Hitscan along aim for first contact.
+        let mut best_t = GRAPPLE_RANGE + 1;
+        let mut hit_kind = GRAPPLE_ANCHOR_PHANTOM;
+        let mut hit_id = 0u8;
+        let phantom_len = GRAPPLE_RANGE * GRAPPLE_PHANTOM_FRAC / 100;
+        let mut hit_x = origin.x + nx * phantom_len / FP_SCALE.max(1);
+        let mut hit_y = origin.y + ny * phantom_len / FP_SCALE.max(1);
+
+        // Ball
+        {
+            let dx = state.ball.pos.x - origin.x;
+            let dy = state.ball.pos.y - origin.y;
+            let along = (dx as i64 * nx as i64 + dy as i64 * ny as i64) / FP_SCALE as i64;
+            if along > 0 && along <= GRAPPLE_RANGE as i64 {
+                let px = origin.x + (nx as i64 * along / FP_SCALE as i64) as i32;
+                let py = origin.y + (ny as i64 * along / FP_SCALE as i64) as i32;
+                let ox = state.ball.pos.x - px;
+                let oy = state.ball.pos.y - py;
+                let lat2 = ox as i64 * ox as i64 + oy as i64 * oy as i64;
+                let rad = (BALL_R + PADDLE_H / 2) as i64;
+                if lat2 <= rad * rad && (along as i32) < best_t {
+                    best_t = along as i32;
+                    hit_kind = GRAPPLE_ANCHOR_BALL;
+                    hit_x = state.ball.pos.x;
+                    hit_y = state.ball.pos.y;
+                }
+            }
+        }
+        // Other paddle
+        {
+            let other = 1 - player;
+            let op = state.paddles[other];
+            let dx = op.x - origin.x;
+            let dy = op.y - origin.y;
+            let along = (dx as i64 * nx as i64 + dy as i64 * ny as i64) / FP_SCALE as i64;
+            if along > 0 && along <= GRAPPLE_RANGE as i64 {
+                let px = origin.x + (nx as i64 * along / FP_SCALE as i64) as i32;
+                let py = origin.y + (ny as i64 * along / FP_SCALE as i64) as i32;
+                let ox = op.x - px;
+                let oy = op.y - py;
+                let lat2 = ox as i64 * ox as i64 + oy as i64 * oy as i64;
+                let rad = (PADDLE_W / 2) as i64;
+                if lat2 <= rad * rad && (along as i32) < best_t {
+                    best_t = along as i32;
+                    hit_kind = GRAPPLE_ANCHOR_PADDLE;
+                    hit_id = other as u8;
+                    hit_x = op.x;
+                    hit_y = op.y;
+                }
+            }
+        }
+        // Bricks
+        for index in 0..BRICK_COUNT {
+            if !state.brick_alive(index) {
+                continue;
+            }
+            let c = state.brick_center(index);
+            let dx = c.x - origin.x;
+            let dy = c.y - origin.y;
+            let along = (dx as i64 * nx as i64 + dy as i64 * ny as i64) / FP_SCALE as i64;
+            if along <= 0 || along > GRAPPLE_RANGE as i64 {
+                continue;
+            }
+            let px = origin.x + (nx as i64 * along / FP_SCALE as i64) as i32;
+            let py = origin.y + (ny as i64 * along / FP_SCALE as i64) as i32;
+            let ox = (c.x - px).abs();
+            let oy = (c.y - py).abs();
+            if ox <= BRICK_W / 2 + PADDLE_H / 4
+                && oy <= BRICK_H / 2 + PADDLE_H / 4
+                && (along as i32) < best_t
+            {
+                best_t = along as i32;
+                hit_kind = GRAPPLE_ANCHOR_BRICK;
+                hit_id = index as u8;
+                hit_x = c.x;
+                hit_y = c.y;
+            }
+        }
+
+        if hit_kind == GRAPPLE_ANCHOR_PHANTOM {
+            // Short phantom yank endpoint already set.
+            let p = &mut state.paddles[player];
+            p.grapple_ax = hit_x;
+            p.grapple_ay = hit_y;
+            p.grapple_length = best_t.min(GRAPPLE_RANGE * GRAPPLE_PHANTOM_FRAC / 100);
+            p.grapple_rest = p.grapple_length;
+            p.grapple_anchor_kind = GRAPPLE_ANCHOR_PHANTOM;
+            p.grapple_phase = GRAPPLE_PHASE_ANCHORED;
+            p.grapple_timer = GRAPPLE_ANCHOR_MAX / 3;
+            p.grapple_charge = charge;
+            p.grapple_was_held = false;
+            events.push(ConfirmedEvent::GrappleAttach {
+                player: player as u8,
+                x: hit_x,
+                y: hit_y,
+            });
+        } else {
+            let p = &mut state.paddles[player];
+            p.grapple_ax = hit_x;
+            p.grapple_ay = hit_y;
+            p.grapple_length = best_t;
+            p.grapple_rest = best_t;
+            p.grapple_anchor_kind = hit_kind;
+            p.grapple_anchor_id = hit_id;
+            p.grapple_phase = GRAPPLE_PHASE_ANCHORED;
+            p.grapple_timer = GRAPPLE_ANCHOR_MAX;
+            p.grapple_charge = charge;
+            p.grapple_was_held = false;
+            events.push(ConfirmedEvent::GrappleAttach {
+                player: player as u8,
+                x: hit_x,
+                y: hit_y,
+            });
+        }
+        return;
+    }
+
+    let p = &mut state.paddles[player];
+    p.grapple_was_held = false;
+    if p.grapple_phase == GRAPPLE_PHASE_IDLE {
+        p.grapple_charge = 0;
+    }
+}
+
+fn apply_radial_aoe(
+    state: &mut WorldState,
+    player: usize,
+    ox: i32,
+    oy: i32,
+    radius: i32,
+    knock: i32,
+) {
+    use crate::collision::enforce_ball_speed;
     let r2 = (radius as i64) * (radius as i64);
 
-    let dx = state.ball.pos.x - origin.x;
-    let dy = state.ball.pos.y - origin.y;
+    let dx = state.ball.pos.x - ox;
+    let dy = state.ball.pos.y - oy;
     let d2 = dx as i64 * dx as i64 + dy as i64 * dy as i64;
     if d2 <= r2 && d2 > 0 {
         let dist = crate::fixed::isqrt(d2).max(1) as i32;
@@ -1250,13 +1804,13 @@ fn apply_ground_pound(
     }
 
     let other = 1 - player;
-    let ox = state.paddles[other].x - origin.x;
-    let oy = state.paddles[other].y - origin.y;
-    let od2 = ox as i64 * ox as i64 + oy as i64 * oy as i64;
+    let px = state.paddles[other].x - ox;
+    let py = state.paddles[other].y - oy;
+    let od2 = px as i64 * px as i64 + py as i64 * py as i64;
     if od2 <= r2 && od2 > 0 {
         let dist = crate::fixed::isqrt(od2).max(1) as i32;
-        let nx = ox * FP_SCALE / dist;
-        let ny = oy * FP_SCALE / dist;
+        let nx = px * FP_SCALE / dist;
+        let ny = py * FP_SCALE / dist;
         let falloff = ((r2 - od2) * knock as i64 / r2) as i32;
         state.paddles[other].vx += nx * falloff / FP_SCALE;
         state.paddles[other].vy += ny * falloff / FP_SCALE;
@@ -1268,8 +1822,8 @@ fn apply_ground_pound(
         if !w.active {
             continue;
         }
-        let wx = w.x - origin.x;
-        let wy = w.y - origin.y;
+        let wx = w.x - ox;
+        let wy = w.y - oy;
         let wd2 = wx as i64 * wx as i64 + wy as i64 * wy as i64;
         if wd2 <= r2 && wd2 > 0 {
             let dist = crate::fixed::isqrt(wd2).max(1) as i32;
@@ -1280,6 +1834,63 @@ fn apply_ground_pound(
             w.vy += ny * falloff / FP_SCALE;
         }
     }
+}
+
+fn apply_ground_pound(
+    state: &mut WorldState,
+    player: usize,
+    peak_z: i32,
+    events: &mut Vec<crate::ConfirmedEvent>,
+) {
+    use crate::ConfirmedEvent;
+    let origin = state.paddles[player];
+    events.push(ConfirmedEvent::GroundPound {
+        player: player as u8,
+        x: origin.x,
+        y: origin.y,
+    });
+
+    let height_t = (peak_z as i64 * 1000 / MAX_JUMP_Z.max(1) as i64).clamp(250, 1000);
+    let radius = (GROUND_POUND_RADIUS as i64 * (700 + height_t * 3 / 10) / 1000) as i32;
+    let knock = (GROUND_POUND_KNOCK as i64 * (550 + height_t * 45 / 100) / 1000) as i32;
+    apply_radial_aoe(state, player, origin.x, origin.y, radius, knock);
+}
+
+fn apply_jump_land(
+    state: &mut WorldState,
+    player: usize,
+    hop: u8,
+    events: &mut Vec<crate::ConfirmedEvent>,
+) {
+    use crate::ConfirmedEvent;
+    let origin = state.paddles[player];
+    events.push(ConfirmedEvent::JumpLand {
+        player: player as u8,
+        hop,
+        x: origin.x,
+        y: origin.y,
+    });
+    let scale = 700 + hop as i64 * 120;
+    let radius = (JUMP_LAND_RADIUS as i64 * scale / 1000) as i32;
+    let knock = (JUMP_LAND_KNOCK as i64 * scale / 1000) as i32;
+    apply_radial_aoe(state, player, origin.x, origin.y, radius, knock);
+}
+
+fn apply_triple_land(
+    state: &mut WorldState,
+    player: usize,
+    events: &mut Vec<crate::ConfirmedEvent>,
+) {
+    use crate::ConfirmedEvent;
+    let origin = state.paddles[player];
+    events.push(ConfirmedEvent::TripleLand {
+        player: player as u8,
+        x: origin.x,
+        y: origin.y,
+    });
+    let radius = GROUND_POUND_RADIUS * 4 / 5;
+    let knock = GROUND_POUND_KNOCK * 4 / 5;
+    apply_radial_aoe(state, player, origin.x, origin.y, radius, knock);
 }
 
 fn resolve_paddle_collisions(state: &mut WorldState) {
@@ -1358,6 +1969,10 @@ fn resolve_paddle_wilds(state: &mut WorldState) -> Vec<crate::ConfirmedEvent> {
             events.push(ConfirmedEvent::WildPaddleKnock {
                 player: player as u8,
                 slot: slot as u8,
+            });
+            events.push(ConfirmedEvent::DustImpact {
+                x: state.paddles[player].x,
+                y: state.paddles[player].y,
             });
         }
         clamp_paddles(state);

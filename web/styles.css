@@ -254,64 +254,291 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
 
 .touch-pad {
   position: absolute;
-  inset: auto 0 0 0;
+  inset: 0;
   z-index: 40;
   display: none;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 1rem max(0.85rem, env(safe-area-inset-bottom));
+  /* Absolute corner chrome — not grid mid-board. */
   pointer-events: none;
+  --pad-accent: var(--accent, #33d9f2);
+  --pad-accent-2: var(--accent-2, #7eb8ff);
 }
 .touch-pad:not([hidden]) {
-  display: flex;
+  display: block;
 }
 .touch-pad[hidden] {
   display: none !important;
 }
-.touch-pad-base {
-  position: relative;
-  width: 7.5rem;
-  height: 7.5rem;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--accent, #c9a227) 45%, transparent);
-  background: color-mix(in srgb, #0a070e 55%, transparent);
+.touch-bisect {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
   pointer-events: auto;
   touch-action: none;
+  z-index: 1;
+}
+.touch-bisect-left {
+  left: 0;
+}
+.touch-bisect-right {
+  right: 0;
+}
+.touch-pad-stick {
+  pointer-events: none;
+  z-index: 2;
+}
+.touch-pad-left-col {
+  position: absolute;
+  left: max(0.15rem, env(safe-area-inset-left, 0px));
+  bottom: max(0.15rem, env(safe-area-inset-bottom, 0px));
+  z-index: 3;
+  pointer-events: none;
+}
+.touch-pad-right-col {
+  position: absolute;
+  right: max(0.1rem, env(safe-area-inset-right, 0px));
+  bottom: max(0.1rem, env(safe-area-inset-bottom, 0px));
+  z-index: 3;
+  pointer-events: none;
+}
+/* Stick −30% (3.5rem); faces +10% at 8/10/1 o'clock around R-stick, tangential to board corner. */
+.touch-pad-face-wrap {
+  --face: 2.64rem;
+  --stick: 3.5rem;
+  --orbit: 3.42rem; /* stick_r + face_r + gap */
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  pointer-events: none;
+  z-index: 4;
+}
+.touch-pad-left {
+  position: relative;
+}
+.touch-pad-right {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  top: auto;
+}
+.touch-pad-base {
+  position: relative;
+  width: var(--stick, 3.5rem);
+  height: var(--stick, 3.5rem);
+  border-radius: 999px;
+  opacity: 0.72;
+  border: 0;
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--pad-accent) 14%, transparent),
+    color-mix(in srgb, #0a070e 28%, transparent) 55%,
+    transparent 78%
+  );
+  pointer-events: none;
+  touch-action: none;
+  transition: left 0.05s ease-out, top 0.05s ease-out, opacity 0.15s ease;
+  overflow: visible;
+}
+.touch-pad-base.is-active {
+  opacity: 0.95;
+}
+.touch-pad-aim {
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--pad-accent) 16%, transparent),
+    color-mix(in srgb, #0a1220 28%, transparent) 55%,
+    transparent 78%
+  );
+}
+.touch-pad-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  overflow: visible;
+}
+.touch-pad-ripple-soft,
+.touch-pad-ripple-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46%;
+  height: 46%;
+  margin: -23% 0 0 -23%;
+  border-radius: 999px;
+  opacity: 0;
+  transform: scale(0.5);
+  pointer-events: none;
+}
+.touch-pad-ripple-soft {
+  border: 0;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--pad-accent) 36%, transparent) 0%,
+    color-mix(in srgb, var(--pad-accent) 14%, transparent) 42%,
+    transparent 70%
+  );
+  filter: blur(0.7px);
+}
+.touch-pad-ripple-ring {
+  background: transparent;
+  box-shadow:
+    0 0 0 1.25px color-mix(in srgb, var(--pad-accent) 58%, white 12%),
+    0 0 10px 1px color-mix(in srgb, var(--pad-accent) 42%, transparent);
+}
+.touch-pad-aim .touch-pad-ripple-soft {
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--pad-accent) 36%, transparent) 0%,
+    color-mix(in srgb, var(--pad-accent) 14%, transparent) 42%,
+    transparent 70%
+  );
+}
+.touch-pad-aim .touch-pad-ripple-ring {
+  box-shadow:
+    0 0 0 1.25px color-mix(in srgb, var(--pad-accent) 58%, white 12%),
+    0 0 10px 1px color-mix(in srgb, var(--pad-accent) 42%, transparent);
+}
+.touch-pad-base.is-active .touch-pad-ripple-soft {
+  animation: stick-ripple-soft 1.35s ease-out infinite;
+}
+.touch-pad-base.is-active .touch-pad-ripple-soft-delay {
+  animation-delay: 0.45s;
+}
+.touch-pad-base.is-active .touch-pad-ripple-ring {
+  animation: stick-ripple-ring 1.55s ease-out infinite;
+}
+.touch-pad-base.is-active .touch-pad-ripple-ring-delay {
+  animation-delay: 0.7s;
+}
+@keyframes stick-ripple-soft {
+  0% {
+    transform: scale(0.42);
+    opacity: 0.55;
+  }
+  60% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(2.55);
+    opacity: 0;
+  }
+}
+@keyframes stick-ripple-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.7;
+  }
+  45% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(2.85);
+    opacity: 0;
+  }
 }
 .touch-pad-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 2.4rem;
-  height: 2.4rem;
-  margin: -1.2rem 0 0 -1.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: -0.55rem 0 0 -0.55rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent, #c9a227) 70%, white);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent, #c9a227) 35%, transparent);
+  background: radial-gradient(
+    circle at 40% 35%,
+    color-mix(in srgb, var(--pad-accent) 42%, transparent),
+    color-mix(in srgb, var(--pad-accent) 12%, transparent) 70%,
+    transparent 100%
+  );
+  border: 0;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--pad-accent) 18%, transparent);
   pointer-events: none;
-  transition: background 0.12s ease;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, background 0.12s ease;
 }
-.touch-pad-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+.touch-pad-base.is-active .touch-pad-knob {
+  opacity: 0.72;
+}
+.touch-pad-aim .touch-pad-knob {
+  background: radial-gradient(
+    circle at 40% 35%,
+    color-mix(in srgb, var(--pad-accent) 45%, transparent),
+    color-mix(in srgb, var(--pad-accent) 12%, transparent) 70%,
+    transparent 100%
+  );
+  box-shadow: 0 0 14px color-mix(in srgb, var(--pad-accent) 18%, transparent);
+}
+.touch-face {
+  position: absolute;
+  width: var(--face, 2.64rem);
+  height: var(--face, 2.64rem);
+  border-radius: 999px;
+  opacity: 0.8;
+  border: 1.5px solid color-mix(in srgb, var(--pad-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--pad-accent) 55%, #0a070e);
+  color: color-mix(in srgb, var(--pad-accent) 85%, white);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  touch-action: manipulation;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  z-index: 5;
   pointer-events: auto;
 }
-.touch-pad-actions button {
-  min-width: 4.25rem;
-  min-height: 2.75rem;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in srgb, var(--accent, #c9a227) 50%, transparent);
-  background: color-mix(in srgb, #0a070e 70%, transparent);
-  color: var(--accent, #c9a227);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  touch-action: manipulation;
+.touch-glyph {
+  width: 55%;
+  height: 55%;
+  display: block;
 }
-.touch-pad-actions button:active,
-.touch-pad-actions button.is-held {
-  background: color-mix(in srgb, var(--accent, #c9a227) 28%, #0a070e);
+/*
+ * Clock around stick center (right=1.75rem, bottom=1.75rem):
+ * α=h*30°; face_right = 1.75 - sin(α)*orbit - face/2; face_bottom = 1.75 + cos(α)*orbit - face/2
+ * 8→Spin, 10→Grapple, 1→Jump — tangential to board corner chrome.
+ */
+.touch-face-spin {
+  /* 8 o'clock */
+  right: 3.39rem;
+  bottom: -0.35rem;
+  left: auto;
+  top: auto;
+}
+.touch-face-grapple {
+  /* 10 o'clock */
+  right: 2.14rem;
+  bottom: 2.14rem;
+  left: auto;
+  top: auto;
+}
+.touch-face-jump {
+  /* 1 o'clock */
+  right: -0.35rem;
+  bottom: 3.39rem;
+  left: auto;
+  top: auto;
+}
+.touch-face:active,
+.touch-face.is-held {
+  background: color-mix(in srgb, var(--pad-accent) 78%, white);
+  opacity: 1;
+}
+.touch-face-spin:active,
+.touch-face-spin.is-held,
+.touch-face-grapple:active,
+.touch-face-grapple.is-held,
+.touch-face-jump:active,
+.touch-face-jump.is-held {
+  background: color-mix(in srgb, var(--pad-accent) 78%, white);
+}
+
+/* Desktop / fine pointer: never show on-screen gamepad. */
+@media (hover: hover) and (pointer: fine) {
+  .touch-pad,
+  .touch-pad:not([hidden]) {
+    display: none !important;
+  }
 }
 
 .arena-hud {
@@ -334,13 +561,14 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
 
 .hud-howto {
   position: absolute;
-  top: 50%;
+  top: 0.45rem;
   right: 0.65rem;
-  transform: translateY(-50%);
+  bottom: auto;
+  transform: none;
   z-index: 8;
   pointer-events: none;
   max-width: 9.5rem;
-  padding: 0.55rem 0.65rem;
+  padding: 0.35rem 0.55rem 0.55rem;
   border-radius: 0.5rem;
   border: 1px solid rgba(130, 140, 200, 0.35);
   background: rgba(10, 8, 18, 0.78);
@@ -351,14 +579,59 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
   right: auto;
   left: 0.65rem;
 }
+.hud-howto-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.2rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.hud-howto-chevron {
+  flex: 0 0 auto;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid rgba(200, 210, 255, 0.75);
+  border-bottom: 2px solid rgba(200, 210, 255, 0.75);
+  rotate: 45deg;
+  translate: 0 -0.1rem;
+  transition: rotate 0.2s ease;
+}
+.hud-howto.is-collapsed .hud-howto-chevron {
+  rotate: -45deg;
+  translate: 0 0.05rem;
+}
+.hud-howto.is-collapsed {
+  padding-bottom: 0.35rem;
+}
+.hud-howto.is-collapsed .hud-howto-body {
+  display: none;
+}
 /* Hide how-to cards while pre-match / lobby / results cover the board. */
 .arena-wrap.is-overlay-open .hud-howto {
   display: none;
 }
+/* Touch bisects steal mid-board taps — mute pad while lobby / ready / results are up. */
+.arena-wrap.is-overlay-open .touch-pad {
+  visibility: hidden;
+  pointer-events: none !important;
+}
+.arena-wrap.is-overlay-open .touch-bisect,
+.arena-wrap.is-overlay-open .touch-face {
+  pointer-events: none !important;
+}
 @media (max-width: 1100px) {
   .hud-howto {
-    top: auto;
-    bottom: 0.45rem;
+    top: max(0.35rem, env(safe-area-inset-top));
+    bottom: auto;
     transform: none;
     max-width: min(46%, 11rem);
     font-size: 0.9em;
@@ -371,31 +644,40 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
     right: 0.45rem;
     left: auto;
   }
+  /* Default collapsed on tablet/phone so the board stays clear. */
+  .hud-howto:not(.is-collapsed) {
+    max-width: min(52%, 14rem);
+  }
 }
 @media (max-width: 720px) {
   .hud-howto {
-    position: static;
+    position: absolute;
     transform: none;
-    max-width: none;
-    margin: 0.35rem 0 0;
-    width: 100%;
-  }
-  .arena-wrap {
-    display: flex;
-    flex-direction: column;
-  }
-  .arena-wrap #bevy-canvas {
-    order: 0;
+    max-width: min(42%, 10.5rem);
+    margin: 0;
+    width: auto;
+    top: max(0.3rem, env(safe-area-inset-top));
+    bottom: auto;
   }
   .arena-wrap .hud-howto-win {
-    order: 1;
+    left: 0.35rem;
+    right: auto;
+    order: unset;
   }
   .arena-wrap .hud-howto:not(.hud-howto-win) {
-    order: 2;
+    right: 0.35rem;
+    left: auto;
+    order: unset;
+  }
+}
+@media (min-width: 1101px) {
+  /* Desktop: start expanded; still collapsible via header. */
+  .hud-howto.is-collapsed {
+    /* keep class for toggle, but JS clears is-collapsed on wide screens at bind */
   }
 }
 .hud-howto h3 {
-  margin: 0 0 0.35rem;
+  margin: 0;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -403,7 +685,7 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
   color: rgba(200, 210, 255, 0.85);
 }
 .hud-howto ul {
-  margin: 0;
+  margin: 0.35rem 0 0;
   padding: 0;
   list-style: none;
   display: flex;
@@ -664,6 +946,69 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
   color: rgba(220, 225, 255, 0.72);
   font-size: 0.85rem;
 }
+.ready-hold-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 8.5rem;
+  min-height: 3rem;
+  margin: 0.15rem auto 0.35rem;
+  padding: 0.65rem 1.6rem;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--accent, #33d9f2) 55%, transparent);
+  background: color-mix(in srgb, var(--accent, #33d9f2) 18%, #0a070e);
+  color: #e8f8ff;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    transform 0.12s ease,
+    background 0.12s ease;
+}
+.ready-hold-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent, #33d9f2) 78%, white);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent, #33d9f2) 28%, transparent);
+}
+.ready-hold-btn.holding {
+  border-color: color-mix(in srgb, var(--accent, #33d9f2) 85%, white);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent, #33d9f2) 36%, transparent);
+  transform: scale(1.02);
+}
+.ready-hold-btn.is-ready,
+.ready-hold-btn:disabled {
+  border-color: rgba(80, 220, 160, 0.75);
+  background: rgba(24, 70, 48, 0.55);
+  color: #b8ffd8;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+.ready-hold-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    from -90deg,
+    color-mix(in srgb, var(--accent, #33d9f2) 88%, white) calc(var(--hold, 0) * 360deg),
+    transparent 0
+  );
+  opacity: calc(0.35 + var(--hold, 0) * 0.65);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+}
+.ready-hold-label {
+  position: relative;
+  z-index: 1;
+}
 .ready-slots {
   display: flex;
   flex-wrap: wrap;
@@ -711,7 +1056,7 @@ button.ghost:hover:not(:disabled):not(.is-disabled) {
 .lobby-wait {
   position: absolute;
   inset: 0;
-  z-index: 46;
+  z-index: 55;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -915,12 +1260,68 @@ body.embedded .embed-options {
   border-bottom: 1px solid rgba(120, 130, 190, 0.28);
   z-index: 20;
   flex: 0 0 auto;
+  transition: padding 0.18s ease;
+}
+html.embedded .embed-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 html.embedded .embed-options-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
+}
+html.embedded .embed-chrome-bar {
+  gap: 0.55rem;
+  min-height: 1.4rem;
+}
+html.embedded .embed-collapse-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.15rem 0.35rem 0.15rem 0.2rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+html.embedded .embed-collapse-chevron {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid rgba(200, 210, 255, 0.75);
+  border-bottom: 2px solid rgba(200, 210, 255, 0.75);
+  rotate: -135deg;
+  translate: 0 0.08rem;
+  transition: rotate 0.18s ease;
+}
+html.embedded .embed-options.is-collapsed .embed-collapse-chevron {
+  rotate: 45deg;
+  translate: 0 -0.05rem;
+}
+html.embedded .embed-options.is-collapsed {
+  padding: 0.22rem 0.55rem;
+  gap: 0;
+}
+html.embedded .embed-options.is-collapsed .embed-options-body {
+  display: none;
+}
+html.embedded .embed-collapse-hint {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(170, 180, 230, 0.65);
+}
+html.embedded .embed-options.is-collapsed .embed-collapse-hint {
+  display: inline;
+}
+html.embedded .embed-options:not(.is-collapsed) .embed-collapse-hint {
+  display: none;
 }
 html.embedded .embed-brand {
   font-weight: 800;

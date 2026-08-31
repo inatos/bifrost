@@ -40,6 +40,11 @@ pub struct Args {
     #[arg(skip)]
     #[serde(default, skip_serializing)]
     pub turn_credential: Option<String>,
+
+    /// Online lobby role from the HTML shell: host → GGRS seat 0, guest → seat 1.
+    #[arg(skip)]
+    #[serde(default, skip_serializing)]
+    pub is_host: bool,
 }
 
 impl Args {

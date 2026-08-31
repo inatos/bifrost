@@ -108,29 +108,27 @@ fn bot_tick(
         interp.advance(&sim.world);
         return;
     }
-    if sim.world.phase != MatchPhase::MatchOver {
-        let paddle = sim.world.paddles[0];
-        // Keep visual anchor fresh for mouse (same path as online).
-        anchor.x = if interp.initialized {
-            interp.curr.paddles[0].x
-        } else {
-            paddle.x
-        };
-        anchor.y = if interp.initialized {
-            interp.curr.paddles[0].y
-        } else {
-            paddle.y
-        };
-        anchor.valid = true;
-        let p0 = local_input_mask(
-            &keys, &mouse, &gamepads, &windows, &camera_q, anchor.x, anchor.y, &mut focus,
-        );
-        let cfg = bot.cfg;
-        let p1 = advance_bot(&sim.world, &mut bot.bot, 1, cfg);
-        let input = bifrost_sim::FrameInput { p0, p1 };
-        bot.recording.push(input);
-        let out = step(&mut sim.world, input);
-        sim.events.extend(out.events);
-    }
+    let paddle = sim.world.paddles[0];
+    // Keep visual anchor fresh for mouse (same path as online).
+    anchor.x = if interp.initialized {
+        interp.curr.paddles[0].x
+    } else {
+        paddle.x
+    };
+    anchor.y = if interp.initialized {
+        interp.curr.paddles[0].y
+    } else {
+        paddle.y
+    };
+    anchor.valid = true;
+    let p0 = local_input_mask(
+        &keys, &mouse, &gamepads, &windows, &camera_q, anchor.x, anchor.y, &mut focus,
+    );
+    let cfg = bot.cfg;
+    let p1 = advance_bot(&sim.world, &mut bot.bot, 1, cfg);
+    let input = bifrost_sim::FrameInput { p0, p1 };
+    bot.recording.push(input);
+    let out = step(&mut sim.world, input);
+    sim.events.extend(out.events);
     interp.advance(&sim.world);
 }

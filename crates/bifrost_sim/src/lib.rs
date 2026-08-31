@@ -14,8 +14,8 @@ pub use bot::{BotConfig, BotState};
 pub use checksum::checksum;
 pub use fixed::{FP_SCALE, Vec2};
 pub use input::{
-    FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_JUMP, INPUT_LEFT, INPUT_RIGHT,
-    INPUT_SPIN, INPUT_UP,
+    FrameInput, INPUT_ANGLE_CCW, INPUT_ANGLE_CW, INPUT_DOWN, INPUT_GRAPPLE, INPUT_JUMP, INPUT_LEFT,
+    INPUT_RIGHT, INPUT_SPIN, INPUT_UP, InputMask,
 };
 pub use paddle_geom::{
     JUMP_CLEAR_Z, MAX_JUMP_Z, PADDLE_W_BACK, can_ground_pound, jump_scale_fixed, paddle_airborne,
@@ -80,6 +80,19 @@ pub enum ConfirmedEvent {
         x: i32,
         y: i32,
     },
+    /// Soft land after hop 1 / 2 (smoke + light knock).
+    JumpLand {
+        player: u8,
+        hop: u8,
+        x: i32,
+        y: i32,
+    },
+    /// Odyssey third-hop land slam.
+    TripleLand {
+        player: u8,
+        x: i32,
+        y: i32,
+    },
     /// Corner shockwave — presentation + knock already applied in sim.
     CornerPulse {
         corner: u8,
@@ -102,6 +115,44 @@ pub enum ConfirmedEvent {
         x: i32,
         y: i32,
     },
+    GrappleFire {
+        player: u8,
+        charge: u16,
+    },
+    GrappleAttach {
+        player: u8,
+        x: i32,
+        y: i32,
+    },
+    GrappleYank {
+        player: u8,
+        charge: u16,
+        x: i32,
+        y: i32,
+    },
+    GrappleBreak {
+        player: u8,
+        x: i32,
+        y: i32,
+    },
+    /// Jump-cancel slingshot off a stretched tether.
+    GrappleSling {
+        player: u8,
+        x: i32,
+        y: i32,
+    },
+    /// Ground pivot skid dust (dir = facing of skid spray).
+    DustSkid {
+        x: i32,
+        y: i32,
+        dir_x: i32,
+        dir_y: i32,
+    },
+    /// Contact puff (ball / brick / paddle / wall).
+    DustImpact {
+        x: i32,
+        y: i32,
+    },
 }
 
 pub struct StepOutput {
@@ -117,7 +168,7 @@ pub fn new_match(seed: u64) -> WorldState {
     WorldState::new(seed)
 }
 
-pub fn advance_bot(state: &WorldState, bot: &mut BotState, player: usize, cfg: BotConfig) -> u8 {
+pub fn advance_bot(state: &WorldState, bot: &mut BotState, player: usize, cfg: BotConfig) -> u16 {
     bot::choose_input(state, bot, player, cfg)
 }
 

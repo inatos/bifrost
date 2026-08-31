@@ -413,6 +413,8 @@ function leaveConfirmMessage() {
 
 function confirmLeaveOnline() {
   if (!onlineSessionHeld()) return true;
+  // Native window.confirm is blocked / returns false in many mobile iframes (Lab embed).
+  if (isEmbedded()) return true;
   try {
     return window.confirm(leaveConfirmMessage());
   } catch (_) {
@@ -451,6 +453,9 @@ function dismissOnlineSession(promptMsg) {
   hideLobbyWait();
   lobbyPhase = "idle";
   lobbyRole = null;
+  try {
+    window.__bifrostApplyPadSeatColors?.();
+  } catch (_) {}
   lobbyPlayerCount = 0;
   opponentName = "P2";
   setPlayMode(null);
@@ -511,6 +516,9 @@ window.bifrostOpponentLeft = function bifrostOpponentLeft(message) {
 function showLobbyWait(role, code) {
   lobbyWaitOpen = true;
   lobbyRole = role;
+  try {
+    window.__bifrostApplyPadSeatColors?.();
+  } catch (_) {}
   lobbyPhase = role === "guest" ? "guest_wait" : "host_wait";
   lobbyPlayerCount = role === "guest" ? 2 : 1;
   userQuit = false;
@@ -698,23 +706,12 @@ function voteRematch() {
     el.classList.add("is-ready");
     el.textContent = `${getPlayerName()} Ready`;
   }
+  // Latch JUMP into the sim for both bot + online. MatchOver accepts rematch votes;
+  // when both seats are ready the sim returns to Readying (do NOT tear down to bot).
+  window.__bifrostReadyWanted = true;
+  pulseReadyJump();
   clearTimeout(window.__rematchTimer);
-  // Short confirm beat then rematch (CPU is always ready).
-  window.__rematchTimer = setTimeout(() => {
-    window.__rematchTimer = 0;
-    if (!matchLatched || !rematchP0) return;
-    userQuit = false;
-    matchLatched = false;
-    rematchP0 = false;
-    suppressResults = true;
-    const panel = $("results");
-    if (panel) {
-      panel.classList.add("hidden");
-      panel.classList.remove("round-only");
-    }
-    syncOverlayClass();
-    startBotMatch();
-  }, 350);
+  window.__rematchTimer = 0;
 }
 
 function wasmApi() {
@@ -827,9 +824,10 @@ function bindHud() {
   hudCaller = $("hud-caller");
   const playAgain = $("btn-play-again");
   const quit = $("btn-quit");
-  const resultsMenu = $("btn-results-menu");
-  const readyMenu = $("btn-ready-menu");
+  const resultsLeave = $("btn-results-leave") || $("btn-results-menu");
+  const readyLeave = $("btn-ready-leave") || $("btn-ready-menu");
   const readyQuit = $("btn-ready-quit");
+  bindReadyHold();
   if (playAgain) {
     playAgain.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -839,33 +837,103 @@ function bindHud() {
   if (quit) {
     quit.addEventListener("click", (e) => {
       e.stopPropagation();
-      quitToMenu();
+      void quitToMenu();
     });
   }
-  if (resultsMenu) {
-    resultsMenu.addEventListener("click", (e) => {
+  if (resultsLeave) {
+    resultsLeave.addEventListener("click", (e) => {
       e.stopPropagation();
-      returnToMatchMenu();
+      void returnToMatchMenu();
     });
   }
-  if (readyMenu) {
-    readyMenu.addEventListener("click", (e) => {
+  if (readyLeave) {
+    readyLeave.addEventListener("click", (e) => {
       e.stopPropagation();
-      returnToMatchMenu();
+      void returnToMatchMenu();
     });
   }
   if (readyQuit) {
     readyQuit.addEventListener("click", (e) => {
       e.stopPropagation();
-      quitToMenu();
+      void quitToMenu();
     });
   }
   requestAnimationFrame(syncHudLoop);
 }
 
-/** Leave lobby / results but stay in Bifrost match options (Lab stays open). */
-async function returnToMatchMenu() {
-  if (!confirmLeaveOnline()) return;
+/** Hold-to-ready (~Arathyll overlay-back ring). */
+const READY_HOLD_MS = 629;
+let readyHoldStart = 0;
+let readyHoldRaf = 0;
+
+function resetReadyHoldUi() {
+  readyHoldStart = 0;
+  if (readyHoldRaf) {
+    cancelAnimationFrame(readyHoldRaf);
+    readyHoldRaf = 0;
+  }
+  const btn = $("btn-ready-hold");
+  if (!btn) return;
+  btn.classList.remove("holding");
+  const ring = btn.querySelector(".ready-hold-ring");
+  if (ring) ring.style.setProperty("--hold", "0");
+}
+
+function tickReadyHold() {
+  if (readyHoldStart <= 0) return;
+  const btn = $("btn-ready-hold");
+  if (!btn || btn.disabled || !readyUpOpen()) {
+    resetReadyHoldUi();
+    return;
+  }
+  const progress = Math.min(1, (performance.now() - readyHoldStart) / READY_HOLD_MS);
+  btn.classList.toggle("holding", progress > 0);
+  const ring = btn.querySelector(".ready-hold-ring");
+  if (ring) ring.style.setProperty("--hold", String(progress));
+  if (progress >= 1) {
+    resetReadyHoldUi();
+    pulseReadyJump();
+    return;
+  }
+  readyHoldRaf = requestAnimationFrame(tickReadyHold);
+}
+
+function bindReadyHold() {
+  const btn = $("btn-ready-hold");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  const begin = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (btn.disabled || !readyUpOpen()) return;
+    try {
+      btn.setPointerCapture?.(e.pointerId);
+    } catch (_) {}
+    readyHoldStart = performance.now();
+    if (readyHoldRaf) cancelAnimationFrame(readyHoldRaf);
+    readyHoldRaf = requestAnimationFrame(tickReadyHold);
+  };
+  const end = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      btn.releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+    resetReadyHoldUi();
+  };
+  btn.addEventListener("pointerdown", begin);
+  btn.addEventListener("pointerup", end);
+  btn.addEventListener("pointerleave", end);
+  btn.addEventListener("pointercancel", end);
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
+/** Tear down lobby / match online state so the next Create/Join starts clean. */
+async function teardownOnlineSession({ confirm = true } = {}) {
+  if (confirm && !confirmLeaveOnline()) return false;
   if (onlineSessionHeld()) await leaveRoomOnServer();
   userQuit = true;
   matchLatched = false;
@@ -873,11 +941,16 @@ async function returnToMatchMenu() {
   pendingBotStart = false;
   pendingOnlineConnect = null;
   window.__bifrostReadyWanted = false;
+  resetReadyHoldUi();
   stopRoomPoll();
   hideLobbyWait();
   lobbyPhase = "idle";
   lobbyRole = null;
+  try {
+    window.__bifrostApplyPadSeatColors?.();
+  } catch (_) {}
   lobbyPlayerCount = 0;
+  opponentName = "P2";
   setPlayMode(null);
   clearRoomFields();
   hideCountdown();
@@ -891,9 +964,22 @@ async function returnToMatchMenu() {
     panel.classList.remove("round-only");
   }
   $("ready-up")?.classList.add("hidden");
-  setStatus("Match menu — Bot, Create, or Join");
   updateLaunchEnabled();
   window.__bifrostPaused = true;
+  try {
+    const api = wasmApi();
+    if (wasmReady && api?.bifrost_leave_match) {
+      api.bifrost_leave_match();
+    }
+  } catch (_) {}
+  syncOverlayClass();
+  return true;
+}
+
+/** Leave lobby / results but stay in Bifrost match options (Lab stays open). */
+async function returnToMatchMenu() {
+  if (!(await teardownOnlineSession())) return;
+  setStatus("Match menu — Bot, Create, or Join");
   if (isEmbedded()) {
     showPreMatch();
     const hint = $("pre-match")?.querySelector(".pre-match-hint");
@@ -901,58 +987,18 @@ async function returnToMatchMenu() {
   } else {
     showLobby();
   }
-  try {
-    const api = wasmApi();
-    if (wasmReady && api?.bifrost_leave_match) {
-      api.bifrost_leave_match();
-    } else if (wasmReady && api?.bifrost_start_bot) {
-      api.bifrost_start_bot();
-    }
-    window.__bifrostPaused = true;
-  } catch (_) {}
   syncOverlayClass();
 }
 
 async function quitToMenu() {
-  if (!confirmLeaveOnline()) return;
-  if (onlineSessionHeld()) await leaveRoomOnServer();
-  userQuit = true;
-  matchLatched = false;
-  rematchP0 = false;
-  pendingBotStart = false;
-  pendingOnlineConnect = null;
-  window.__bifrostReadyWanted = false;
-  stopRoomPoll();
-  hideLobbyWait();
-  lobbyPhase = "idle";
-  lobbyRole = null;
-  lobbyPlayerCount = 0;
-  setPlayMode(null);
-  clearRoomFields();
-  hideCountdown();
-  clearTimeout(window.__rematchTimer);
-  window.__rematchTimer = 0;
-  clearTimeout(window.__bifrostRoundBanner);
-  window.__bifrostRoundBanner = 0;
-  const panel = $("results");
-  if (panel) {
-    panel.classList.add("hidden");
-    panel.classList.remove("round-only");
-  }
-  $("ready-up")?.classList.add("hidden");
+  if (!(await teardownOnlineSession())) return;
   setStatus("Have a good one!");
-  updateLaunchEnabled();
-  try {
-    const api = wasmApi();
-    if (wasmReady && api?.bifrost_leave_match) api.bifrost_leave_match();
-  } catch (_) {}
   try {
     window.parent?.postMessage({ type: "bifrost-quit", message: "Have a good one!" }, "*");
   } catch (_) {
     /* ignore cross-origin */
   }
   if (isEmbedded()) {
-    window.__bifrostPaused = true;
     showPreMatch();
     const hint = $("pre-match")?.querySelector(".pre-match-hint");
     if (hint) hint.textContent = "Have a good one!";
@@ -965,6 +1011,7 @@ async function quitToMenu() {
     arenaHud.hidden = true;
     arenaHud.setAttribute("aria-hidden", "true");
   }
+  syncOverlayClass();
 }
 
 function syncHudLoop() {
@@ -1008,6 +1055,7 @@ function syncHudLoop() {
         setStatus("Ready up — both must confirm");
       } else if (hud.in_game) {
         setStatus("In match — WASD / arrows / mouse / gamepad");
+        collapseEmbedBarForMatch();
       }
       try {
         window.parent?.postMessage({ type: "bifrost-game-start" }, "*");
@@ -1046,9 +1094,12 @@ function syncHudLoop() {
     hudCaller.classList.toggle("owner-p1", hud.owner === 0);
     hudCaller.classList.toggle("owner-p2", hud.owner === 1);
   }
-  syncReady(hud);
   syncResults(hud);
+  syncReady(hud);
   syncOverlayClass();
+  try {
+    window.__bifrostApplyPadSeatColors?.();
+  } catch (_) {}
 }
 
 function syncReady(hud) {
@@ -1059,21 +1110,46 @@ function syncReady(hud) {
   el.classList.toggle("hidden", !show);
   if (!show) {
     window.__bifrostReadyWanted = false;
+    resetReadyHoldUi();
     return;
   }
   showArenaHud();
   const ready = hud.ready || [false, false];
   const bot = !!hud.bot;
-  const localSeat = lobbyRole === "guest" ? 1 : 0;
+  // Prefer GGRS local seat when present; fall back to lobby role.
+  let localSeat = lobbyRole === "guest" ? 1 : 0;
+  try {
+    const seats = hud.local_seats || hud.localSeats;
+    if (Array.isArray(seats) && seats.length > 0) {
+      localSeat = Number(seats[0]) | 0;
+    }
+  } catch (_) {}
   const youReady = !!ready[localSeat];
   const themReady = bot ? true : !!ready[1 - localSeat];
   if (youReady) window.__bifrostReadyWanted = false;
   else if (window.__bifrostReadyWanted) pulseReadyJump();
   const hint = $("ready-hint");
   if (hint) {
-    hint.textContent = bot
-      ? "Press A / Space to ready · CPU always readies"
-      : "Press A / Space to ready — both players must confirm";
+    hint.textContent = youReady
+      ? bot
+        ? "You are ready · CPU always readies"
+        : themReady
+          ? "Both ready — starting…"
+          : "Waiting for opponent…"
+      : bot
+        ? "Hold Ready · CPU always readies"
+        : "Hold Ready — both players must confirm";
+  }
+  const holdBtn = $("btn-ready-hold");
+  if (holdBtn) {
+    holdBtn.classList.toggle("is-ready", youReady);
+    // Only disable once this seat is actually latched ready — never stick disabled.
+    holdBtn.disabled = !!youReady;
+    holdBtn.classList.toggle("is-disabled", !!youReady);
+    holdBtn.setAttribute("aria-disabled", youReady ? "true" : "false");
+    const label = holdBtn.querySelector(".ready-hold-label");
+    if (label) label.textContent = youReady ? "Ready!" : "Ready";
+    if (youReady) resetReadyHoldUi();
   }
   const p0 = $("ready-p0");
   const p1 = $("ready-p1");
@@ -1082,7 +1158,7 @@ function syncReady(hud) {
     p0.classList.toggle("is-ready", youReady);
     p0.textContent = youReady
       ? `You (${youLabel}) Ready`
-      : `You (${youLabel}) — press A / Space`;
+      : `You (${youLabel}) — hold Ready`;
   }
   if (p1) {
     const them = bot ? "CPU" : opponentName || (lobbyRole === "guest" ? "Host" : "Opponent");
@@ -1098,12 +1174,25 @@ function syncReady(hud) {
 function syncResults(hud) {
   const panel = $("results");
   if (!panel) return;
+  const phase = (hud.phase || "").toLowerCase();
+
+  // Rematch accepted — sim left MatchOver for Readying / serve.
+  if (matchLatched && phase && phase !== "match_over") {
+    matchLatched = false;
+    rematchP0 = false;
+    window.__bifrostReadyWanted = false;
+    suppressResults = false;
+    panel.classList.add("hidden");
+    panel.classList.remove("round-only");
+    syncOverlayClass();
+    return;
+  }
+
   if (userQuit || suppressResults) {
     panel.classList.add("hidden");
     panel.classList.remove("round-only");
     // Clear suppress once the sim has left match_over.
     if (suppressResults && hud && !hud.match_over && !hud.matchOver) {
-      const phase = hud.phase || "";
       if (phase && phase !== "match_over") {
         suppressResults = false;
       }
@@ -1115,6 +1204,7 @@ function syncResults(hud) {
     matchLatched ||
     hud.match_over ||
     hud.matchOver ||
+    phase === "match_over" ||
     rounds[0] >= 2 ||
     rounds[1] >= 2
   );
@@ -1137,6 +1227,37 @@ function syncResults(hud) {
       rematchP0El.textContent = `${getPlayerName()} — press Play Again`;
     }
   }
+
+  // Drive rematch votes from sim ready[] (JUMP while MatchOver).
+  const readyBits = hud.ready || [false, false];
+  const bot = !!hud.bot;
+  const localSeat = lobbyRole === "guest" ? 1 : 0;
+  const youReady = !!readyBits[localSeat];
+  const themReady = bot ? true : !!readyBits[1 - localSeat];
+  if (youReady) {
+    rematchP0 = true;
+    window.__bifrostReadyWanted = false;
+  } else if (window.__bifrostReadyWanted || rematchP0) {
+    pulseReadyJump();
+  }
+  const rematchP0El = $("rematch-p0");
+  if (rematchP0El) {
+    rematchP0El.classList.toggle("is-ready", youReady);
+    rematchP0El.textContent = youReady
+      ? `${getPlayerName()} Ready`
+      : `${getPlayerName()} — press Play Again`;
+  }
+  const rematchCpu = $("rematch-cpu");
+  if (rematchCpu) {
+    const them = bot ? "CPU" : opponentName || (lobbyRole === "guest" ? "Host" : "Opponent");
+    rematchCpu.classList.toggle("is-ready", themReady);
+    rematchCpu.textContent = themReady
+      ? `${them} Ready`
+      : bot
+        ? "CPU Ready"
+        : `${them} — waiting`;
+  }
+
   showArenaHud();
   panel.classList.remove("hidden");
   panel.classList.remove("round-only");
@@ -1361,6 +1482,7 @@ function beginBotMatchNow() {
   }
   hideLobby();
   showArenaHud();
+  collapseEmbedBarForMatch();
   setStatus("Bot match — WASD / arrows / mouse / gamepad · X/RT spin");
   focusPlaySurface();
   return true;
@@ -1444,7 +1566,7 @@ async function connectOnline(room, ticket, role = "host") {
     setStatus(`Room ${room} — negotiating relay…`);
   }
   try {
-    wasmApi().bifrost_connect(room, ticket, turnUrls, turnUser, turnCred);
+    wasmApi().bifrost_connect(room, ticket, turnUrls, turnUser, turnCred, role === "host");
   } catch (e) {
     console.error("[bifrost] bifrost_connect failed", e);
     setStatus(`Could not connect: ${e.message}`);
@@ -1530,7 +1652,7 @@ function bindEmbedUi() {
   if (preQuit) {
     preQuit.addEventListener("click", (e) => {
       e.stopPropagation();
-      quitToMenu();
+      void quitToMenu();
     });
   }
   if (embedBot) {
@@ -1668,7 +1790,7 @@ function bindEmbedUi() {
     });
   }
   const lobbyCopy = $("btn-lobby-copy");
-  const lobbyQuit = $("btn-lobby-quit");
+  const lobbyLeave = $("btn-lobby-leave") || $("btn-lobby-quit");
   if (lobbyCopy) {
     lobbyCopy.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -1682,10 +1804,10 @@ function bindEmbedUi() {
       }
     });
   }
-  if (lobbyQuit) {
-    lobbyQuit.addEventListener("click", (e) => {
+  if (lobbyLeave) {
+    lobbyLeave.addEventListener("click", (e) => {
       e.stopPropagation();
-      quitToMenu();
+      void returnToMatchMenu();
     });
   }
   if (embedInsp) {
@@ -1913,7 +2035,17 @@ function focusPlaySurface() {
   bifrostUnlockAudio();
 }
 
-window.__bifrostPad = { lx: 0, ly: 0, rx: 0, ry: 0, south: false, west: false, spin: false };
+window.__bifrostPad = {
+  lx: 0,
+  ly: 0,
+  rx: 0,
+  ry: 0,
+  south: false,
+  west: false,
+  east: false,
+  spin: false,
+  grapple: false,
+};
 window.__bifrostKeys = {};
 window.__bifrostKeyJump = false;
 if (typeof window.__bifrostPaused !== "boolean") {
@@ -1993,24 +2125,29 @@ window.addEventListener("message", (ev) => {
     const now = performance.now();
     const lx = Number(d.lx) || 0;
     const ly = Number(d.ly) || 0;
+    // Pad: X/west = spin · Y = grapple · B/east = menu cancel only · LT = grapple.
+    const spinHeld = !!(d.west || d.spin || d.x);
+    const grappleHeld = !!(d.grapple || d.y || d.north);
+    const menuCancel = !!(d.east || d.b);
     if (readyUpOpen()) {
       if (d.south && !lastPadConfirm) {
         pulseReadyJump();
       }
-      if ((d.east || d.b) && !lastPadEast) {
+      if (menuCancel && !lastPadEast) {
         returnToMatchMenu();
       }
       lastPadConfirm = !!d.south;
-      lastPadEast = !!(d.east || d.b);
+      lastPadEast = menuCancel;
       window.__bifrostPad = {
         lx,
         ly,
         rx: Number(d.rx) || 0,
         ry: Number(d.ry) || 0,
         south: !!d.south,
-        west: !!(d.west || d.spin),
-        spin: !!(d.west || d.spin),
-        east: !!(d.east || d.b),
+        west: spinHeld,
+        east: false,
+        spin: spinHeld,
+        grapple: grappleHeld,
       };
       return;
     }
@@ -2024,16 +2161,15 @@ window.addEventListener("message", (ev) => {
       if (d.south && !lastPadConfirm) {
         confirmUiFocus();
       }
-      if ((d.east || d.b) && !lastPadEast) {
+      if (menuCancel && !lastPadEast) {
         quitUiFocus();
       }
       lastPadConfirm = !!d.south;
-      lastPadEast = !!(d.east || d.b);
+      lastPadEast = menuCancel;
       return;
     }
     lastPadConfirm = !!d.south;
-    lastPadEast = !!(d.east || d.b);
-    const spinHeld = !!(d.west || d.spin);
+    lastPadEast = menuCancel;
     window.__bifrostPad = {
       lx,
       ly,
@@ -2041,8 +2177,9 @@ window.addEventListener("message", (ev) => {
       ry: Number(d.ry) || 0,
       south: !!d.south,
       west: spinHeld,
+      east: false,
       spin: spinHeld,
-      east: !!(d.east || d.b),
+      grapple: grappleHeld,
     };
   }
 });
@@ -2132,6 +2269,73 @@ function bifrostSynthTone(ctx, kind, volume) {
     return;
   }
 
+  // Grapple: zip + crackle.
+  if (kind === "grapple") {
+    const dur = 0.28;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(980, t0);
+    osc.frequency.exponentialRampToValueAtTime(160, t0 + dur);
+    gain.gain.setValueAtTime(vol * 0.32, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+
+    const bufferSize = Math.floor(ctx.sampleRate * 0.18);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const env = 1 - i / bufferSize;
+      data[i] = (Math.random() * 2 - 1) * env * env * 0.7;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 1400;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(vol * 0.4, t0 + 0.04);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+    noise.connect(filter);
+    filter.connect(ng);
+    ng.connect(ctx.destination);
+    noise.start(t0 + 0.04);
+    noise.stop(t0 + 0.24);
+    return;
+  }
+
+  // Corner trampoline: bright ping + springy thump.
+  if (kind === "corner") {
+    const dur = 0.22;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(740, t0);
+    osc.frequency.exponentialRampToValueAtTime(180, t0 + dur);
+    gain.gain.setValueAtTime(vol * 0.55, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = "sine";
+    osc2.frequency.setValueAtTime(1480, t0);
+    osc2.frequency.exponentialRampToValueAtTime(420, t0 + 0.12);
+    gain2.gain.setValueAtTime(vol * 0.28, t0);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.start(t0);
+    osc2.stop(t0 + 0.16);
+    return;
+  }
+
   const rates = {
     break: 0.55,
     chip: 1.35,
@@ -2194,6 +2398,8 @@ window.bifrostHaptic = function bifrostHaptic(kind) {
       win: [30, 40, 30, 40, 80],
       pound: [25, 30, 55],
       spin: [12, 18],
+      grapple: [10, 16, 22],
+      corner: [18, 22, 28],
     };
     const pulse = patterns[kind] || [12];
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
@@ -2248,6 +2454,8 @@ document.addEventListener("DOMContentLoaded", () => {
   focusPlaySurface();
   bindButtonPressFeedback();
   bindTouchPad();
+  bindHowtoCollapse();
+  bindEmbedCollapse();
   void reclaimStaleOnlineSession();
 });
 
@@ -2256,26 +2464,57 @@ window.addEventListener("beforeunload", leaveOnlineSessionOnUnload);
 
 bindUi();
 
-/** On-screen move stick + jump/spin for coarse pointers (phones in Lab embed). */
+/** On-screen dual stick + faces — phones / coarse mobile only (never desktop). */
+function wantsTouchPad() {
+  const ua = navigator.userAgent || "";
+  const mobileUa = /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
+    ua
+  );
+  const coarsePhone =
+    window.matchMedia("(pointer: coarse)").matches &&
+    window.matchMedia("(hover: none)").matches;
+  const fineDesktop =
+    window.matchMedia("(hover: hover)").matches &&
+    window.matchMedia("(pointer: fine)").matches;
+  if (fineDesktop && !mobileUa) return false;
+  return mobileUa || coarsePhone;
+}
+
 function bindTouchPad() {
   const root = $("touch-pad");
-  const move = $("touch-pad-move");
+  const moveZone = $("touch-bisect-move") || $("touch-pad-move");
   const knob = $("touch-pad-knob");
+  const aimZone = $("touch-bisect-aim") || $("touch-pad-aim");
+  const aimKnob = $("touch-pad-aim-knob");
   const jumpBtn = $("touch-jump");
   const spinBtn = $("touch-spin");
-  if (!root || !move || !knob) return;
+  const grappleBtn = $("touch-grapple");
+  if (!root || !moveZone || !knob) return;
 
-  const coarse =
-    window.matchMedia("(pointer: coarse)").matches ||
-    window.matchMedia("(hover: none)").matches ||
-    navigator.maxTouchPoints > 0;
-  if (!coarse && !isEmbedded()) {
-    root.hidden = true;
-    root.setAttribute("aria-hidden", "true");
-    return;
-  }
-  root.hidden = false;
-  root.setAttribute("aria-hidden", "false");
+  const showPad = () => {
+    if (!wantsTouchPad()) {
+      root.hidden = true;
+      root.setAttribute("aria-hidden", "true");
+      return false;
+    }
+    root.hidden = false;
+    root.setAttribute("aria-hidden", "false");
+    return true;
+  };
+  if (!showPad()) return;
+  window.matchMedia("(pointer: fine)").addEventListener?.("change", showPad);
+  window.matchMedia("(hover: hover)").addEventListener?.("change", showPad);
+  window.matchMedia("(max-width: 900px)").addEventListener?.("change", showPad);
+
+  const applySeatColors = () => {
+    // P1 cyan / P2 orange — sticks + faces share the seat color.
+    const seat = lobbyRole === "guest" ? 1 : 0;
+    const accent = seat === 0 ? "#33d9f2" : "#f28c40";
+    root.style.setProperty("--pad-accent", accent);
+    root.style.setProperty("--pad-accent-2", accent);
+  };
+  applySeatColors();
+  window.__bifrostApplyPadSeatColors = applySeatColors;
 
   const pad = () => {
     window.__bifrostPad = window.__bifrostPad || {
@@ -2285,85 +2524,156 @@ function bindTouchPad() {
       ry: 0,
       south: false,
       west: false,
-      spin: false,
       east: false,
+      spin: false,
+      grapple: false,
     };
     return window.__bifrostPad;
   };
 
-  let activeId = null;
-  const radius = () => Math.max(28, move.clientWidth * 0.42);
+  const bindStick = (zone, knobEl, writeAxes, visualBase, deadzone) => {
+    if (!zone || !knobEl) return;
+    let activeId = null;
+    let originX = 0;
+    let originY = 0;
+    const GATE = 52; // device px — short full-deflection travel (gacha-style)
+    const DEADZONE = deadzone;
+    const CURVE = 1.25;
+    const homeLeft = visualBase ? visualBase.style.left : "";
+    const homeTop = visualBase ? visualBase.style.top : "";
+    const homeTransform = visualBase ? visualBase.style.transform : "";
 
-  const setKnob = (nx, ny) => {
-    const r = radius();
-    knob.style.transform = `translate(${nx * r}px, ${ny * r}px)`;
-  };
-
-  const resetMove = () => {
-    activeId = null;
-    const p = pad();
-    p.lx = 0;
-    p.ly = 0;
-    setKnob(0, 0);
-  };
-
-  const onMove = (clientX, clientY) => {
-    const rect = move.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    let dx = (clientX - cx) / radius();
-    let dy = (clientY - cy) / radius();
-    const mag = Math.hypot(dx, dy);
-    if (mag > 1) {
-      dx /= mag;
-      dy /= mag;
-    }
-    const p = pad();
-    p.lx = dx;
-    // Screen Y down → stick Y up for game (embed pad uses y- = up).
-    p.ly = -dy;
-    setKnob(dx, dy);
-  };
-
-  move.addEventListener(
-    "pointerdown",
-    (e) => {
-      if (activeId != null) return;
-      activeId = e.pointerId;
-      try {
-        move.setPointerCapture(e.pointerId);
-      } catch (_) {}
-      focusPlaySurface();
-      onMove(e.clientX, e.clientY);
-      e.preventDefault();
-    },
-    { passive: false }
-  );
-  move.addEventListener(
-    "pointermove",
-    (e) => {
+    const setKnob = (nx, ny) => {
+      knobEl.style.transform = `translate(${nx * GATE}px, ${ny * GATE}px)`;
+    };
+    const resetVisualBase = () => {
+      if (!visualBase) return;
+      visualBase.classList.remove("is-active");
+      visualBase.style.left = homeLeft;
+      visualBase.style.top = homeTop;
+      visualBase.style.transform = homeTransform || "";
+      visualBase.style.position = "";
+    };
+    const reset = () => {
+      activeId = null;
+      writeAxes(0, 0);
+      setKnob(0, 0);
+      resetVisualBase();
+    };
+    const onMove = (clientX, clientY) => {
+      let dx = (clientX - originX) / GATE;
+      let dy = (clientY - originY) / GATE;
+      let mag = Math.hypot(dx, dy);
+      if (mag > 1) {
+        dx /= mag;
+        dy /= mag;
+        mag = 1;
+      }
+      // Deadzone + soft power curve for fine center / snappy rim.
+      let outX = 0;
+      let outY = 0;
+      if (mag > DEADZONE) {
+        const t = (mag - DEADZONE) / (1 - DEADZONE);
+        const shaped = Math.pow(t, CURVE);
+        const inv = mag > 0 ? shaped / mag : 0;
+        outX = dx * inv;
+        outY = dy * inv;
+      }
+      writeAxes(outX, outY);
+      setKnob(dx, dy);
+    };
+    zone.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (activeId != null) return;
+        activeId = e.pointerId;
+        originX = e.clientX;
+        originY = e.clientY;
+        // Floating stick: park visual base under finger (clamped to pad).
+        if (visualBase && root) {
+          const padRect = root.getBoundingClientRect();
+          const half = (visualBase.clientWidth || 84) / 2;
+          const lx = Math.min(
+            padRect.width - half - 8,
+            Math.max(half + 8, e.clientX - padRect.left)
+          );
+          const ly = Math.min(
+            padRect.height - half - 8,
+            Math.max(half + 8, e.clientY - padRect.top)
+          );
+          visualBase.style.position = "fixed";
+          visualBase.style.left = `${padRect.left + lx - half}px`;
+          visualBase.style.top = `${padRect.top + ly - half}px`;
+          visualBase.style.transform = "none";
+          visualBase.style.zIndex = "6";
+          visualBase.classList.add("is-active");
+          originX = padRect.left + lx;
+          originY = padRect.top + ly;
+        }
+        try {
+          zone.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        focusPlaySurface();
+        onMove(e.clientX, e.clientY);
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+    zone.addEventListener(
+      "pointermove",
+      (e) => {
+        if (e.pointerId !== activeId) return;
+        onMove(e.clientX, e.clientY);
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+    const endMove = (e) => {
       if (e.pointerId !== activeId) return;
-      onMove(e.clientX, e.clientY);
-      e.preventDefault();
-    },
-    { passive: false }
-  );
-  const endMove = (e) => {
-    if (e.pointerId !== activeId) return;
-    resetMove();
+      reset();
+    };
+    zone.addEventListener("pointerup", endMove);
+    zone.addEventListener("pointercancel", endMove);
+    zone.addEventListener("lostpointercapture", () => {
+      if (activeId != null) reset();
+    });
   };
-  move.addEventListener("pointerup", endMove);
-  move.addEventListener("pointercancel", endMove);
-  move.addEventListener("lostpointercapture", () => {
-    if (activeId != null) resetMove();
-  });
+
+  // L/R stick Y: finger-up → negative → INPUT_UP (match Gamepad / R-stick).
+  // R-stick deadzone +10% vs move stick (0.14 → 0.154).
+  const moveBase = $("touch-pad-move");
+  const aimBase = $("touch-pad-aim");
+  bindStick(
+    moveZone,
+    knob,
+    (dx, dy) => {
+      const p = pad();
+      p.lx = dx;
+      p.ly = dy;
+    },
+    moveBase,
+    0.14
+  );
+  bindStick(
+    aimZone,
+    aimKnob,
+    (dx, dy) => {
+      const p = pad();
+      p.rx = dx;
+      p.ry = dy;
+    },
+    aimBase,
+    0.14 * 1.1
+  );
 
   const holdButton = (btn, flag) => {
     if (!btn) return;
     const set = (on) => {
       const p = pad();
       p[flag] = on;
+      // Protocol: west = spin (pad X); grapple flag = Grappleshot (pad Y / touch).
       if (flag === "west") p.spin = on;
+      if (flag === "grapple") p.grapple = on;
       if (flag === "south") {
         window.__bifrostKeyJump = on;
         window.__bifrostKeys = window.__bifrostKeys || {};
@@ -2391,8 +2701,8 @@ function bindTouchPad() {
   };
   holdButton(jumpBtn, "south");
   holdButton(spinBtn, "west");
+  holdButton(grappleBtn, "grapple");
 
-  // Also chase paddle from direct canvas touch (Bevy cursor + pad fallback).
   const canvas = $("bevy-canvas");
   if (canvas) {
     canvas.addEventListener(
@@ -2403,6 +2713,75 @@ function bindTouchPad() {
       { passive: true }
     );
   }
+}
+
+/** Collapsible HOW TO WIN / CONTROLS cards — default collapsed on mobile. */
+function bindHowtoCollapse() {
+  const cards = document.querySelectorAll(".hud-howto");
+  if (!cards.length) return;
+  const mobile = window.matchMedia("(max-width: 1100px)");
+  const syncDefault = () => {
+    cards.forEach((card) => {
+      const toggle = card.querySelector("[data-howto-toggle]");
+      if (mobile.matches) {
+        card.classList.add("is-collapsed");
+        if (toggle) toggle.setAttribute("aria-expanded", "false");
+      } else {
+        card.classList.remove("is-collapsed");
+        if (toggle) toggle.setAttribute("aria-expanded", "true");
+      }
+    });
+  };
+  syncDefault();
+  mobile.addEventListener?.("change", syncDefault);
+  cards.forEach((card) => {
+    const toggle = card.querySelector("[data-howto-toggle]");
+    if (!toggle) return;
+    toggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const next = !card.classList.contains("is-collapsed");
+      card.classList.toggle("is-collapsed", next);
+      toggle.setAttribute("aria-expanded", next ? "false" : "true");
+    });
+  });
+}
+
+/** Embed top game bar — collapse for playfield; auto-collapse on match start. */
+function setEmbedBarCollapsed(collapsed) {
+  const nav = $("embed-options");
+  const btn = $("btn-embed-collapse");
+  if (!nav) return;
+  nav.classList.toggle("is-collapsed", !!collapsed);
+  if (btn) {
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    btn.title = collapsed ? "Expand game bar" : "Collapse game bar";
+  }
+}
+
+function collapseHowtoForMatch() {
+  document.querySelectorAll(".hud-howto").forEach((card) => {
+    card.classList.add("is-collapsed");
+    const toggle = card.querySelector("[data-howto-toggle]");
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+  });
+}
+
+function collapseEmbedBarForMatch() {
+  collapseHowtoForMatch();
+  if (!isEmbedded()) return;
+  setEmbedBarCollapsed(true);
+}
+
+function bindEmbedCollapse() {
+  const nav = $("embed-options");
+  const btn = $("btn-embed-collapse");
+  if (!nav || !btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    setEmbedBarCollapsed(!nav.classList.contains("is-collapsed"));
+  });
 }
 
 /** Press ripple on buttons (cyan/gold aurora). */
@@ -2462,4 +2841,6 @@ function bindButtonPressFeedback() {
 if (document.readyState !== "loading") {
   bindButtonPressFeedback();
   bindTouchPad();
+  bindHowtoCollapse();
+  bindEmbedCollapse();
 }
